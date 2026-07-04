@@ -1,0 +1,23 @@
+[package]
+name = "intwav-cli"
+description = "Command-line interface for intwav — integer PCM archival tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "intwav"
+path = "src/main.rs"
+
+[dependencies]
+intwav-core.workspace = true
+intwav-codec.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

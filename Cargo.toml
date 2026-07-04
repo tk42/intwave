@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/intwav-core",
+    "crates/intwav-codec",
+    "crates/intwav-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tk42/intwave"
+rust-version = "1.94"
+
+[workspace.dependencies]
+intwav-core = { path = "crates/intwav-core", version = "0.1.0" }
+intwav-codec = { path = "crates/intwav-codec", version = "0.1.0" }
+claxon = "0.4"
+hound = "3.5"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+tempfile = "3"
+
+[profile.release]
+# Keep debug symbols out of the release binary but do not obscure the
+# disassembly-based float-instruction scan of intwav-core.
+opt-level = 3

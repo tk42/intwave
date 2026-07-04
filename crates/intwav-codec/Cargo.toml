@@ -1,0 +1,15 @@
+[package]
+name = "intwav-codec"
+description = "Integer PCM WAV/FLAC I/O for intwav"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+intwav-core.workspace = true
+claxon.workspace = true
+hound.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true

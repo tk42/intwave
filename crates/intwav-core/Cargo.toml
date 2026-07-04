@@ -1,0 +1,17 @@
+[package]
+name = "intwav-core"
+description = "Integer-only audio-processing core for intwav (no floating point)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints.rust]
+# The product guarantee is float-free processing. These deny lints keep the
+# core honest; the CI disassembly scan (scripts/check-no-float.sh) is the
+# authoritative check.
+unsafe_code = "forbid"
+
+[dependencies]
+# intentionally no dependencies: the core stays no_std + alloc, integer-only.
