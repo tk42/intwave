@@ -8,7 +8,7 @@
 
 intwav 能够在**不进行**浮点转换、重新量化或重采样的情况下，对整数 PCM 进行检查、裁剪和无损压缩存档。它不是 DAW（数字音频工作站），不会对音频进行所谓的“改善” — 它完全依照录入时的状态保留 PCM 原始数据，并以无损 FLAC 格式保存，同时提供可解释且完整记录的日志处理路径。
 
-## 状态: v0.1
+## 状态: v0.4
 
 已实现的命令：
 
@@ -19,9 +19,18 @@ intwav 能够在**不进行**浮点转换、重新量化或重采样的情况下
 | `intwav peak <in>`   | 各通道峰值电平 (dBFS + 原始值) |
 | `intwav clips <in>`  | 削波样本计数 |
 | `intwav trim <in> [out] --from <ts> --to <ts>` | 提取区间，保持样本值完全不变 |
+| `intwav split <in> --out <dir> (--cue <f> \| --by silence\|ab)` | 拆分为音轨（CUE 列表、静音检测或 A/B 面）并保留元数据 |
+| `intwav gain <in> <out> --db <n>` | 定点增益调节，整数 dB (-96..=24)；正向增益 (`+`) 需要 `--allow-clipping` 参数 |
+| `intwav fade-in <in> <out> --duration <d>` | 线性定点淡入 |
+| `intwav fade-out <in> <out> --duration <d>` | 线性定点淡出 |
+| `intwav dc-correct <in> <out>` | 移除各通道的直流偏移 (DC offset) |
+| `intwav export16 <in> <out> [--dither tpdf]` | 使用 TPDF 抖动的 16-bit 衍生输出（非母带用途） |
+| `intwav verify <a> [b]` | 计算 PCM 校验和，或证明两个文件包含完全相同的 PCM 数据 |
 
-时间戳支持 `HH:MM:SS.mmm`、`MM:SS.mmm`、`SS.mmm` 或纯秒数格式。
-`trim` 接受 `--output-format flac|wav`（默认：根据输出文件扩展名推断，否则使用 FLAC）以及用于生成 JSON 处理报告（§13）的 `--report <path>` 参数。
+时间戳支持 `HH:MM:SS.mmm`、`MM:SS.mmm`、`SS.mmm` 或纯秒数格式；时长同时也支持 `5s` / `250ms` 格式。
+所有音频处理命令均支持 `--output-format flac|wav`（默认：根据输出文件扩展名推断，否则使用 FLAC）以及用于生成 JSON 处理报告（§13/§22）的 `--report <path>` 参数，报告内包含 PCM SHA-256 校验和与处理日志哈希值。
+
+增益、淡入淡出、直流校正和 16-bit 抖动全部都是**定点整数**运算。增益系数来自预先计算好的 Q31 表（不使用 `pow` 函数）；TPDF 抖动使用带有可复现 `--seed` 种子的整数伪随机数生成器 (PRNG)。
 
 ### 支持格式
 
@@ -39,9 +48,9 @@ intwav 能够在**不进行**浮点转换、重新量化或重采样的情况下
 
 ```
 crates/
-  intwav-core   纯整数处理：分析、dBFS、帧分割（已扫描确保无浮点）
-  intwav-codec  WAV (hound) + FLAC (claxon 解码 / flac-CLI 编码) 整数 I/O
-  intwav-cli    `intwav` 二进制程序：命令行解析、文件 I/O、JSON 报告
+  intwav-core   纯整数 DSP：分析、dBFS、切片、增益/淡入淡出/直流校正、TPDF 抖动（已扫描确保无浮点）
+  intwav-codec  WAV (hound) + FLAC (claxon 解码 / flac-CLI 编码) 整数 I/O + 元数据
+  intwav-cli    `intwav` 二进制程序：命令行解析、文件 I/O、JSON 报告、校验和
 ```
 
 ## 构建与测试

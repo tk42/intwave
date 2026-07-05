@@ -8,7 +8,7 @@
 
 intwav inspecciona, recorta y archiva sin pérdida PCM entero **sin** conversión a punto flotante, recuantificación ni remuestreo. No es una estación de trabajo de audio digital (DAW) ni "mejora" el audio; preserva el PCM exactamente como se capturó y lo almacena como FLAC sin pérdida, con una ruta de procesamiento explicable y registrada en un registro.
 
-## Estado: v0.1
+## Estado: v0.4
 
 Comandos implementados:
 
@@ -19,11 +19,20 @@ Comandos implementados:
 | `intwav peak <in>`   | Nivel de pico por canal (dBFS + valor en bruto) |
 | `intwav clips <in>`  | Recuento de muestras saturadas |
 | `intwav trim <in> [out] --from <ts> --to <ts>` | Extraer un rango, manteniendo los valores de muestra intactos |
+| `intwav split <in> --out <dir> (--cue <f> \| --by silence\|ab)` | Dividir en pistas (lista CUE, silencio o cara A/B) con metadatos |
+| `intwav gain <in> <out> --db <n>` | Ganancia de punto fijo, dB entero (-96..=24); ganancia positiva (`+`) requiere `--allow-clipping` |
+| `intwav fade-in <in> <out> --duration <d>` | Fade-in lineal de punto fijo |
+| `intwav fade-out <in> <out> --duration <d>` | Fade-out lineal de punto fijo |
+| `intwav dc-correct <in> <out>` | Eliminar el desplazamiento DC por canal |
+| `intwav export16 <in> <out> [--dither tpdf]` | Salida derivada de 16 bits con dithering TPDF (no es un máster) |
+| `intwav verify <a> [b]` | Calcular suma de comprobación PCM, o demostrar que dos archivos contienen idéntico PCM |
 
-Las marcas de tiempo están en formato `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` o en segundos simples.
-`trim` acepta `--output-format flac|wav` (por defecto: se deduce por la extensión de salida; si no, FLAC) y `--report <path>` para generar un informe de procesamiento JSON (§13).
+Las marcas de tiempo están en formato `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` o en segundos simples; las duraciones también aceptan `5s` / `250ms`.
+Todos los comandos de procesamiento aceptan `--output-format flac|wav` (por defecto: se deduce por la extensión de salida; si no, FLAC) y `--report <path>` para generar un informe de procesamiento JSON (§13/§22) que incluye sumas de comprobación SHA-256 del PCM y un hash del registro de procesamiento.
 
-### Formatos
+La ganancia, los fades, la corrección DC y el dithering de 16 bits son operaciones totalmente en **enteros de punto fijo**. Los coeficientes de ganancia provienen de una tabla Q31 precalculada (sin `pow`); el dithering TPDF utiliza un generador de números pseudoaleatorios (PRNG) entero con un `--seed` reproducible.
+
+### Formats
 
 * Entrada: WAV y FLAC, PCM **entero** de 16/24/32 bits, mono o estéreo.
 * Salida: FLAC (por defecto) o WAV.
@@ -33,15 +42,13 @@ Las marcas de tiempo están en formato `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` o e
 
 Todas las matemáticas de muestras residen en `intwav-core`, que es `no_std` + `alloc`, no tiene dependencias y **no utiliza punto flotante** — incluido dBFS, que se calcula con una aproximación logarítmica de enteros de punto fijo (precisión < 0.004 dB). La decodificación FLAC utiliza `claxon` puro en Rust; la codificación FLAC se delega al binario externo `flac`, por lo que el análisis interno de punto flotante de libFLAC nunca entra en este proceso.
 
-`scripts/check-no-float.sh` impone esto en CI: escanea el código fuente en busca de construcciones de punto flotante y desensambla el objeto compilado, haciendo fallar la compilación si aparece cualquier instrucción aritmética de punto flotante (x86-64 SSE/x87 o aarch64 FP).
-
 ## Arquitectura
 
 ```
 crates/
-  intwav-core   procesamiento puramente entero: análisis, dBFS, segmentación de tramas (escaneado sin flotantes)
-  intwav-codec  E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI)
-  intwav-cli    el binario `intwav`: análisis de comandos, E/S de archivos, informes JSON
+  intwav-core   DSP puramente entero: análisis, dBFS, segmentación, ganancia/fade/DC, dither TPDF (escaneado sin flotantes)
+  intwav-codec  E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI) + metadatos
+  intwav-cli    el binario `intwav`: análisis de comandos, E/S de archivos, informes JSON, sumas de comprobación
 ```
 
 ## Compilación y pruebas

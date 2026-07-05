@@ -8,7 +8,7 @@
 
 intwav prüft, schneidet und archiviert Ganzzahl-PCM verlustfrei **ohne** Fließkomma-Konvertierung, Requantisierung oder Resampling. Es ist keine DAW und "verbessert" das Audio nicht — es bewahrt das PCM exakt so, wie es aufgenommen wurde, und speichert es als verlustfreies FLAC mit einem nachvollziehbaren und protokollierten Verarbeitungspfad.
 
-## Status: v0.1
+## Status: v0.4
 
 Implementierte Befehle:
 
@@ -19,9 +19,18 @@ Implementierte Befehle:
 | `intwav peak <in>`   | Spitzenpegel pro Kanal (dBFS + Rohwert) |
 | `intwav clips <in>`  | Anzahl der übersteuerten Samples |
 | `intwav trim <in> [out] --from <ts> --to <ts>` | Bereich extrahieren, Sample-Werte bleiben unverändert |
+| `intwav split <in> --out <dir> (--cue <f> \| --by silence\|ab)` | In Tracks aufteilen (CUE-Liste, Stille oder A/B-Seite) mit Metadaten |
+| `intwav gain <in> <out> --db <n>` | Festkomma-Gain, ganzzahlige dB (-96..=24); positiver (`+`) Gain erfordert `--allow-clipping` |
+| `intwav fade-in <in> <out> --duration <d>` | Lineares Festkomma-Fade-In |
+| `intwav fade-out <in> <out> --duration <d>` | Lineares Festkomma-Fade-Out |
+| `intwav dc-correct <in> <out>` | DC-Offset pro Kanal entfernen |
+| `intwav export16 <in> <out> [--dither tpdf]` | 16-Bit-Derivatausgabe mit TPDF-Dither (kein Master) |
+| `intwav verify <a> [b]` | PCM-Prüfsumme berechnen oder nachweisen, dass zwei Dateien identisches PCM enthalten |
 
-Zeitstempel sind im Format `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` oder in einfachen Sekunden anzugeben.
-`trim` akzeptiert `--output-format flac|wav` (Standard: wird aus der Ausgabedateiendung abgeleitet, sonst FLAC) und `--report <path>` für einen JSON-Verarbeitungsbericht (§13).
+Zeitstempel sind im Format `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` oder in einfachen Sekunden anzugeben; Dauern akzeptieren auch `5s` / `250ms`.
+Alle Verarbeitungsbefehle akzeptieren `--output-format flac|wav` (Standard: wird aus der Ausgabedateiendung abgeleitet, sonst FLAC) und `--report <path>` für einen JSON-Verarbeitungsbericht (§13/§22), der PCM-SHA-256-Prüfsummen und einen Hash des Verarbeitungsprotokolls enthält.
+
+Gain, Fades, DC-Korrektur und 16-Bit-Dithering sind ausnahmslos **Festkomma-Ganzzahloperationen**. Gain-Koeffizienten stammen aus einer vorberechneten Q31-Tabelle (ohne `pow`); TPDF-Dithering nutzt einen ganzzahligen PRNG (Pseudozufallszahlengenerator) mit einem reproduzierbaren `--seed`.
 
 ### Formate
 
@@ -39,9 +48,9 @@ Die gesamte Sample-Mathematik befindet sich in `intwav-core`, das `no_std` + `al
 
 ```
 crates/
-  intwav-core   rein ganzzahlige Verarbeitung: Analyse, dBFS, Frame-Slicing (ohne Fließkommazahlen geprüft)
-  intwav-codec  Ganzzahl-E/S für WAV (hound) + FLAC (claxon-Dekodierung / flac-CLI-Kodierung)
-  intwav-cli    die `intwav`-Binärdatei: Befehlsanalyse, Datei-E/S, JSON-Berichte
+  intwav-core   rein ganzzahlige DSP: Analyse, dBFS, Slicing, Gain/Fade/DC, TPDF-Dither (ohne Fließkommazahlen geprüft)
+  intwav-codec  Ganzzahl-E/S für WAV (hound) + FLAC (claxon-Dekodierung / flac-CLI-Kodierung) + Metadaten
+  intwav-cli    die `intwav`-Binärdatei: Befehlsanalyse, Datei-E/S, JSON-Berichte, Prüfsummen
 ```
 
 ## Bauen und Testen

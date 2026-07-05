@@ -8,7 +8,7 @@
 
 intwav inspecte, découpe et archive sans perte le PCM entier **sans** conversion en virgule flottante, requantification ou rééchantillonnage. Ce n'est pas une station de travail audio numérique (DAW) et il n'« améliore » pas l'audio — il préserve le PCM exactement tel qu'il a été capturé et le stocke sous forme de FLAC sans perte, avec un chemin de traitement explicable et journalisé.
 
-## Statut : v0.1
+## Statut : v0.4
 
 Commandes implémentées :
 
@@ -19,9 +19,18 @@ Commandes implémentées :
 | `intwav peak <in>`   | Niveau de crête par canal (dBFS + brut) |
 | `intwav clips <in>`  | Comptage des échantillons écrêtés |
 | `intwav trim <in> [out] --from <ts> --to <ts>` | Extraire une plage, valeurs d'échantillon inchangées |
+| `intwav split <in> --out <dir> (--cue <f> \| --by silence\|ab)` | Découper en pistes (liste CUE, silence, ou face A/B) avec métadonnées |
+| `intwav gain <in> <out> --db <n>` | Gain en virgule fixe, dB entier (-96..=24) ; un gain `+` nécessite `--allow-clipping` |
+| `intwav fade-in <in> <out> --duration <d>` | Fondu entrant (fade-in) linéaire en virgule fixe |
+| `intwav fade-out <in> <out> --duration <d>` | Fondu sortant (fade-out) linéaire en virgule fixe |
+| `intwav dc-correct <in> <out>` | Supprimer le décalage DC par canal |
+| `intwav export16 <in> <out> [--dither tpdf]` | Sortie dérivée 16 bits avec dithering TPDF (pas un master) |
+| `intwav verify <a> [b]` | Calculer la somme de contrôle PCM, ou prouver que deux fichiers contiennent un PCM identique |
 
-Les horodatages sont au format `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` ou simplement en secondes.
-`trim` accepte `--output-format flac|wav` (par défaut : déduit à partir de l'extension de sortie, sinon FLAC) et `--report <path>` pour un rapport de traitement JSON (§13).
+Les horodatages sont au format `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` ou simplement en secondes ; les durées acceptent également `5s` / `250ms`.
+Toutes les commandes de traitement acceptent `--output-format flac|wav` (par défaut : déduit à partir de l'extension de sortie, sinon FLAC) et `--report <path>` pour un rapport de traitement JSON (§13/§22) contenant les sommes de contrôle SHA-256 du PCM et un hachage du journal de traitement.
+
+Le gain, les fondus, la correction DC et le dithering 16 bits sont tous des opérations en **entier à virgule fixe**. Les coefficients de gain proviennent d'une table Q31 précalculée (sans `pow`) ; le dithering TPDF utilise un générateur de nombres pseudo-aléatoires (PRNG) entier avec un `--seed` reproductible.
 
 ### Formats
 
@@ -39,9 +48,9 @@ Tous les calculs sur les échantillons se trouvent dans `intwav-core`, qui est `
 
 ```
 crates/
-  intwav-core   traitement uniquement entier : analyse, dBFS, découpage de trames (scanné sans float)
-  intwav-codec  E/S entières WAV (hound) + FLAC (décodage claxon / encodage flac-CLI)
-  intwav-cli    le binaire `intwav` : analyse des commandes, E/S de fichiers, rapports JSON
+  intwav-core   DSP uniquement entier : analyse, dBFS, découpage, gain/fondu/DC, dither TPDF (scanné sans float)
+  intwav-codec  E/S entières WAV (hound) + FLAC (décodage claxon / encodage flac-CLI) + métadonnées
+  intwav-cli    le binaire `intwav` : analyse des commandes, E/S de fichiers, rapports JSON, sommes de contrôle
 ```
 
 ## Compilation et tests
