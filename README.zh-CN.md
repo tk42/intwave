@@ -48,13 +48,14 @@ intwav 能够在**不进行**浮点转换、重新量化或重采样的情况下
 
 ```
 crates/
-  intwav-core    纯整数 DSP：分析、窗口化静音检测、dBFS、切片、增益/淡入淡出/直流校正、TPDF 抖动（已扫描确保无浮点）
-  intwav-codec   WAV (hound) + FLAC (claxon 解码 / flac-CLI 编码) 整数 I/O、元数据、头部探测 (header probe)
-  intwav-engine  CLI/GUI 共享引擎：核心操作、冻结的 JSON 报告、编码错误、已验证的原子写入、波形金字塔（确保无浮点的源代码）
-  intwav-cli     `intwav` 二进制程序：基于引擎之上的轻量前端
+  intwav-core     纯整数 DSP：分析、窗口化静音检测、dBFS、切片、增益/淡入淡出/直流校正、TPDF 抖动（已扫描确保无浮点）
+  intwav-codec    WAV (hound) + FLAC (claxon 解码 / flac-CLI 编码) 整数 I/O、元数据、头部探测 (header probe)
+  intwav-engine   CLI/GUI 共享引擎：核心操作、冻结的 JSON 报告、编码错误、已验证的原子写入、单次解码临时文件 + 波形金字塔（确保无浮点的源代码）
+  intwav-playback 预览播放 (cpal)：纯整数操作链预览，仅在设备边界使用浮点 — 位于保存处理路径之外，不作为无浮点扫描对象
+  intwav-cli      `intwav` 二进制程序：基于引擎之上的轻量前端
 ```
 
-`intwav-engine` crate 是未来 GUI（Tauri + React）的基础：每一次操作都是同步且由调用方驱动的（支持进度通知与取消），每一次写入都会进行严格验证（`pcm_verified`），CLI 和 GUI 逐字共享这同一套核心引擎。GUI 本身、`intwav-playback` 播放层以及支持随机定位（seekable）的流式解码器正作为后续阶段的计划有待实现。
+`intwav-engine` crate 是未来 GUI（Tauri + React）的基础：每一次操作都是同步且由调用方驱动的（支持进度通知与取消），每一次写入都会进行严格验证（`pcm_verified`），CLI 和 GUI 逐字共享这同一套核心引擎。`open_source` 将大型音源单次解码成支持随机定位（seekable）的临时文件，并在单一通道内完成波形数据和 PCM 哈希的构建。`intwav-playback` 基于该临时文件执行预览播放，执行与导出时完全一致的整数操作链，仅在最终调用音频设备驱动时才使用浮点数（优先采用原生采样率，浮点重采样作为备选手段）。GUI 本身（Tauri + React）的开发正是接下来剩下的主要阶段。
 
 ## 构建与测试
 

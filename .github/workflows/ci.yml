@@ -27,9 +27,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install flac (Linux)
+      - name: Install flac + ALSA (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y flac
+        # libasound2-dev is needed by cpal (intwav-playback) on Linux.
+        run: sudo apt-get update && sudo apt-get install -y flac libasound2-dev
 
       - name: Install flac (macOS)
         if: runner.os == 'macOS'

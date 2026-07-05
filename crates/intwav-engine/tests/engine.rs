@@ -167,6 +167,83 @@ fn export16_marks_requantized_and_dithered() {
 }
 
 #[test]
+fn open_source_scratch_matches_whole_file() {
+    use intwav_engine::{build_pyramid, open_source, pcm_sha256, OpenParams, ScratchReader};
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let scratch = dir.path().join("scr.iwscr");
+    let pcm = ramp(5000, 2, 24, 48_000);
+    write_wav(&pcm, &input).unwrap();
+
+    let params = OpenParams {
+        base_bucket_frames: 128,
+        factor: 8,
+        max_levels: 6,
+        block_frames: 512, // small to exercise streaming boundaries
+    };
+    let open = open_source(&input, &scratch, &params, &NoProgress, &CancelToken::new()).unwrap();
+
+    // One-pass hash equals the whole-file hash.
+    assert_eq!(open.spec.frames, Some(5000));
+    assert_eq!(open.pcm_sha256, pcm_sha256(&pcm));
+
+    // Scratch gives O(1) random access equal to the source samples.
+    let mut reader = ScratchReader::open(&scratch).unwrap();
+    assert_eq!(reader.frames, 5000);
+    assert_eq!(reader.channels, 2);
+    assert_eq!(
+        reader.read_range(1000, 2000).unwrap(),
+        &pcm.samples[1000 * 2..2000 * 2]
+    );
+    assert_eq!(reader.read_range(0, 5000).unwrap(), pcm.samples);
+    assert!(reader.read_range(0, 6000).is_err()); // out of bounds
+
+    // Streaming waveform equals the whole-buffer build.
+    let whole = build_pyramid(&pcm.samples, 2, 24, 128, 8, 6);
+    assert_eq!(open.waveform.levels.len(), whole.levels.len());
+    for (a, b) in open.waveform.levels.iter().zip(&whole.levels) {
+        assert_eq!(a.min, b.min);
+        assert_eq!(a.max, b.max);
+    }
+}
+
+#[test]
+fn open_source_streams_flac() {
+    use intwav_engine::{open_source, pcm_sha256, OpenParams, ScratchReader};
+
+    // Encode a FLAC first (needs the `flac` binary); skip if absent.
+    if std::process::Command::new("flac")
+        .arg("--version")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        eprintln!("skipping: `flac` not on PATH");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("in.wav");
+    let flac = dir.path().join("in.flac");
+    let scratch = dir.path().join("scr.iwscr");
+    let pcm = ramp(3000, 2, 24, 96_000);
+    write_wav(&pcm, &wav).unwrap();
+    intwav_codec::encode_flac(&pcm, &flac, &Vec::new(), std::ffi::OsStr::new("flac")).unwrap();
+
+    let open = open_source(
+        &flac,
+        &scratch,
+        &OpenParams::default(),
+        &NoProgress,
+        &CancelToken::new(),
+    )
+    .unwrap();
+    assert_eq!(open.pcm_sha256, pcm_sha256(&pcm));
+    let mut reader = ScratchReader::open(&scratch).unwrap();
+    assert_eq!(reader.read_range(0, 3000).unwrap(), pcm.samples);
+}
+
+#[test]
 fn cancelled_token_aborts() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("in.wav");

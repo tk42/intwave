@@ -13,11 +13,13 @@
 //!   internal floating-point analysis out of this process entirely.
 
 mod flac;
+mod stream;
 mod wav;
 
 use std::path::Path;
 
 pub use flac::{encode_flac, read_flac, read_flac_tags};
+pub use stream::stream_decode;
 pub use wav::{read_wav, write_wav};
 
 /// Ordered Vorbis-comment metadata for FLAC output. Keys are conventionally

@@ -1,0 +1,23 @@
+[package]
+name = "intwav-playback"
+description = "Preview playback for intwav (float only at the device boundary; not on the save path)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# The cpal-backed device player. Enabled by default; disable for headless
+# builds/CI that only need the (device-free) feeder + resampler logic.
+default = ["device"]
+device = ["dep:cpal"]
+
+[dependencies]
+intwav-core.workspace = true
+intwav-codec.workspace = true
+intwav-engine.workspace = true
+cpal = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

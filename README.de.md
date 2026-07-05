@@ -48,13 +48,14 @@ Die gesamte Sample-Mathematik befindet sich in `intwav-core`, das `no_std` + `al
 
 ```
 crates/
-  intwav-core    rein ganzzahlige DSP: Analyse, gefensterte Stille-Erkennung, dBFS, Slicing, Gain/Fade/DC, TPDF-Dither (ohne Fließkommazahlen geprüft)
-  intwav-codec   Ganzzahl-E/S für WAV (hound) + FLAC (claxon-Dekodierung / flac-CLI-Kodierung), Metadaten, Header-Probe
-  intwav-engine  gemeinsame CLI/GUI-Engine: Operationen, eingefrorener JSON-Bericht, codierte Fehler, verifizierte atomare Schreibvorgänge, Wellenform-Pyramide (fließkommafreier Quellcode)
-  intwav-cli     die `intwav`-Binärdatei: schlankes Front-End über der Engine
+  intwav-core     rein ganzzahlige DSP: Analyse, gefensterte Stille-Erkennung, dBFS, Slicing, Gain/Fade/DC, TPDF-Dither (ohne Fließkommazahlen geprüft)
+  intwav-codec    Ganzzahl-E/S für WAV (hound) + FLAC (claxon-Dekodierung / flac-CLI-Kodierung), Metadaten, Header-Probe
+  intwav-engine   gemeinsame CLI/GUI-Engine: Operationen, eingefrorener JSON-Bericht, codierte Fehler, verifizierte atomare Schreibvorgänge, einmalig decodierte Scratch-Datei + Wellenform-Pyramide (fließkommafreier Quellcode)
+  intwav-playback Vorschau-Wiedergabe (cpal): Vorschau der Ganzzahl-Operationskette, Fließkomma nur an der Gerätegrenze — außerhalb des Speicherpfads, NICHT auf Fließkommazahlen geprüft
+  intwav-cli      die `intwav`-Binärdatei: schlankes Front-End über der Engine
 ```
 
-Das Crate `intwav-engine` bildet die Grundlage für eine kommende GUI (Tauri + React): Jede Operation verläuft synchron und aufrufergesteuert (Fortschritt + Abbrechen), jeder Schreibvorgang wird verifiziert (`pcm_verified`), und die CLI sowie die GUI teilen sich diese Engine unverändert. Die GUI selbst, eine `intwav-playback`-Schicht und ein spulbarer Streaming-Decoder sind für spätere Phasen geplant.
+Das Crate `intwav-engine` bildet die Grundlage für eine kommende GUI (Tauri + React): Jede Operation verläuft synchron und aufrufergesteuert (Fortschritt + Abbrechen), jeder Schreibvorgang wird verifiziert (`pcm_verified`), und die CLI sowie die GUI teilen sich diese Engine unverändert. `open_source` decodiert eine große Quelle einmalig in eine spulbare Scratch-Datei (seekable) und erstellt in einem einzigen Durchlauf gleichzeitig die Wellenform und den PCM-Hash. `intwav-playback` gibt die Vorschau aus dieser Scratch-Datei wieder, wobei exakt dieselbe Ganzzahl-Operationskette wie beim Export ausgeführt wird und Fließkomma nur bei der finalen Konvertierung für das Audiogerät zum Einsatz kommt (native Abtastrate bevorzugt, Fließkomma-Resampling als Fallback). Die GUI selbst (Tauri + React) ist die verbleibende Phase.
 
 ## Bauen und Testen
 

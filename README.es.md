@@ -25,7 +25,7 @@ Comandos implementados:
 | `intwav fade-out <in> <out> --duration <d>` | Fade-out lineal de punto fijo |
 | `intwav dc-correct <in> <out>` | Eliminar el desplazamiento DC por canal |
 | `intwav export16 <in> <out> [--dither tpdf]` | Salida derivada de 16 bits con dithering TPDF (no es un máster) |
-| `intwav verify <a> [b]` | Calcular suma de comprobación PCM, o demostrar que two archivos contienen idéntico PCM |
+| `intwav verify <a> [b]` | Calcular suma de comprobación PCM, o demostrar que dos archivos contienen idéntico PCM |
 
 Las marcas de tiempo están en formato `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` o en segundos simples; las duraciones también aceptan `5s` / `250ms`.
 Todos los comandos de procesamiento aceptan `--output-format flac|wav` (por defecto: se deduce por la extensión de salida; si no, FLAC) y `--report <path>` para generar un informe de procesamiento JSON (§13/§22) que incluye sumas de comprobación SHA-256 del PCM y un hash del registro de procesamiento.
@@ -48,13 +48,14 @@ Todas las matemáticas de muestras residen en `intwav-core`, que es `no_std` + `
 
 ```
 crates/
-  intwav-core    DSP puramente entero: análisis, detección de silencio con ventanas, dBFS, segmentación, ganancia/fade/DC, dither TPDF (escaneado sin flotantes)
-  intwav-codec   E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI), metadatos, sonda de encabezado
-  intwav-engine  motor compartido para CLI/GUI: operaciones, informe JSON congelado, errores codificados, escrituras atómicas verificadas, pirámide de forma de onda (fuente libre de flotantes)
-  intwav-cli     el binario `intwav`: interfaz ligera sobre el motor
+  intwav-core     DSP puramente entero: análisis, detección de silencio con ventanas, dBFS, segmentación, ganancia/fade/DC, dither TPDF (escaneado sin flotantes)
+  intwav-codec    E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI), metadatos, sonda de encabezado
+  intwav-engine   motor compartido para CLI/GUI: operaciones, informe JSON congelado, errores codificados, escrituras atómicas verificadas, archivo temporal (scratch) decodificado una sola vez + pirámide de forma de onda (fuente libre de flotantes)
+  intwav-playback reproducción de vista previa (cpal): vista previa de cadena de operaciones entera, punto flotante únicamente en el límite del dispositivo — fuera de la ruta de guardado, NO escaneado de flotantes
+  intwav-cli      el binario `intwav`: interfaz ligera sobre el motor
 ```
 
-La crate `intwav-engine` es la base de una futura interfaz gráfica (GUI con Tauri + React): cada operación es síncrona y controlada por el llamante (progreso + cancelación), cada escritura es verificada (`pcm_verified`), y la CLI junto con la GUI lo comparten literalmente. La propia GUI, una capa `intwav-playback` y un decodificador de streaming con capacidad de búsqueda (seekable) están planificados para fases posteriores.
+La crate `intwav-engine` es la base de una futura interfaz gráfica (GUI con Tauri + React): cada operación es síncrona y controlada por el llamante (progreso + cancelación), cada escritura es verificada (`pcm_verified`), y la CLI junto con la GUI lo comparten literalmente. `open_source` decodifica una sola vez una fuente de gran tamaño en un archivo temporal (scratch) en el que se puede buscar (seekable), al tiempo que construye la forma de onda y el hash PCM en una sola pasada. `intwav-playback` realiza la vista previa desde ese archivo temporal, ejecutando la misma cadena de operaciones entera que se usaría al exportar, utilizando punto flotante únicamente en la conversión final del dispositivo audio (priorizando la frecuencia nativa, con remuestreo flotante como alternativa de respaldo). La propia GUI (Tauri + React) constituye la fase restante.
 
 ## Compilación y pruebas
 

@@ -16,23 +16,27 @@ mod audio;
 mod config;
 mod error;
 mod hash;
+mod open;
 mod ops;
 mod progress;
 mod report;
+mod scratch;
 mod waveform;
 mod write;
 
 pub use audio::{analyze_file, default_silence, AudioReport, SilentRegion};
 pub use config::EngineConfig;
 pub use error::{EngineError, EngineResult, ErrorCode};
-pub use hash::{pcm_sha256, pcm_slice_sha256, text_sha256};
+pub use hash::{pcm_sha256, pcm_slice_sha256, text_sha256, PcmHasher};
+pub use open::{open_source, OpenParams, OpenSource};
 pub use ops::{
     dc_correct, export16, fade, gain, split, trim, verify, DcParams, Export16Params, FadeKind,
     FadeParams, GainParams, Segment, SplitParams, TrimParams,
 };
 pub use progress::{CancelToken, FnProgress, NoProgress, ProgressSink};
 pub use report::{format_dbfs, peak_dbfs, PeakDbfs, ProcessReport, TOOL_NAME, TOOL_VERSION};
-pub use waveform::{build_pyramid, WaveformLevel, WaveformPyramid};
+pub use scratch::{ScratchReader, ScratchWriter};
+pub use waveform::{build_pyramid, WaveformBuilder, WaveformLevel, WaveformPyramid};
 
 // Re-export the codec types the host needs to call ops.
 pub use intwav_codec::{detect_format, probe, AudioSpec, OutputFormat, PcmBuffer, SourceFormat};

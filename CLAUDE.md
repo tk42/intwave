@@ -42,16 +42,25 @@ engine takes a configurable `flac` path so the GUI can inject a bundled sidecar.
   (`apply_fade_in/out`), `apply_dc_correction`, and `requantize_to_16` + `Rng`
   (`dither.rs`). Gain uses a precomputed Q31 table; no `pow`/float anywhere.
 - `crates/intwav-codec` — `PcmBuffer`, `Metadata`, WAV/FLAC read (`read`), header
-  `probe`, WAV write, FLAC encode (with Vorbis tags, configurable `flac` path).
-  Decode never routes samples through float; unsupported/float input is an
-  explicit error, never a silent conversion.
+  `probe`, memory-bounded `stream_decode` (block callback), WAV write, FLAC
+  encode (Vorbis tags, configurable `flac` path). Decode never routes samples
+  through float; unsupported/float input is an explicit error, never a silent
+  conversion.
 - `crates/intwav-engine` — the shared CLI/GUI engine (float-free in source). The
   operations (`trim`/`split`/`gain`/`fade`/`dc_correct`/`export16`/`verify`/
   `analyze_file`) are synchronous and caller-driven (`ProgressSink` +
   `CancelToken`); the frozen §13 `ProcessReport`, coded `EngineError`, verified
-  atomic writes (`write_verified` → `pcm_verified`), SHA-256 helpers, and the
-  waveform pyramid all live here. Ops take typed params (frames/dB), never
-  strings.
+  atomic writes (`write_verified` → `pcm_verified`), and SHA-256 helpers live
+  here. `open_source` decodes a source **once** into a seekable scratch file
+  (`ScratchReader`/`ScratchWriter`) while building the waveform pyramid
+  (`WaveformBuilder`) and PCM hash in the same pass — the GUI's memory spine.
+  Ops take typed params (frames/dB), never strings.
+- `crates/intwav-playback` — preview playback (**off** the save path, NOT
+  float-scanned — this is the one place float is legitimate). `Feeder` turns a
+  `FrameSource` (scratch or in-memory) into `f32` blocks, applying the same
+  integer gain/fade op-chain as export and converting to `f32` only at the end;
+  `LinearResampler` is the device-rate fallback. The cpal `Player` is behind the
+  default `device` feature; the feeder/resampler are unit-tested without hardware.
 - `crates/intwav-cli` — the `intwav` binary; a thin front-end over the engine.
   One submodule per command group under `commands/`; argument/timecode/CUE
   parsing in `params.rs`/`timecode.rs`. Output-producing commands take

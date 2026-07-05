@@ -50,15 +50,19 @@ All sample math lives in `intwav-core`, which is `no_std` + `alloc`, has no depe
 crates/
   intwav-core    integer-only DSP: analysis, windowed silence, dBFS, slicing, gain/fade/DC, TPDF dither (float-scanned)
   intwav-codec   WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O, metadata, header probe
-  intwav-engine  shared CLI/GUI engine: ops, frozen JSON report, coded errors, verified atomic writes, waveform pyramid (float-free source)
-  intwav-cli     the `intwav` binary: thin front-end over the engine
+  intwav-engine   shared CLI/GUI engine: ops, frozen JSON report, coded errors, verified atomic writes, decode-once scratch + waveform pyramid (float-free source)
+  intwav-playback preview playback (cpal): integer op-chain preview, float only at the device boundary — off the save path, NOT float-scanned
+  intwav-cli      the `intwav` binary: thin front-end over the engine
 ```
 
 The `intwav-engine` crate is the foundation for a forthcoming GUI (Tauri +
 React): every operation is synchronous and caller-driven (progress + cancel),
 every write is verified (`pcm_verified`), and the CLI and GUI share it verbatim.
-The GUI itself, an `intwav-playback` layer, and a seekable streaming decoder are
-staged as later phases.
+`open_source` decodes a large source once into a seekable scratch file while
+building the waveform and PCM hash in a single pass. `intwav-playback` previews
+from that scratch, running the same integer op-chain the export would, with float
+only at the final device conversion (native-rate-first, float resample fallback).
+The GUI itself (Tauri + React) is the remaining phase.
 
 ## Build & test
 
