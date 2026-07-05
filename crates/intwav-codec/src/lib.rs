@@ -125,6 +125,53 @@ pub fn detect_format(path: &Path) -> Result<SourceFormat, CodecError> {
     }
 }
 
+/// Stream parameters read from a file header, without decoding samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioSpec {
+    pub bit_depth: u16,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Total frames, if the header records it (`None` for some FLAC streams).
+    pub frames: Option<u64>,
+}
+
+/// Probe a file's stream parameters from its header (cheap — no sample decode).
+/// Applies the same format/shape validation as [`read`].
+pub fn probe(path: &Path) -> Result<(AudioSpec, SourceFormat), CodecError> {
+    let format = detect_format(path)?;
+    let spec = match format {
+        SourceFormat::Wav => {
+            let reader = hound::WavReader::open(path)?;
+            let s = reader.spec();
+            if s.sample_format == hound::SampleFormat::Float {
+                return Err(CodecError::FloatWav);
+            }
+            validate_shape(s.bits_per_sample, s.channels)?;
+            let frames = (reader.len() as u64) / (s.channels as u64).max(1);
+            AudioSpec {
+                bit_depth: s.bits_per_sample,
+                sample_rate: s.sample_rate,
+                channels: s.channels,
+                frames: Some(frames),
+            }
+        }
+        SourceFormat::Flac => {
+            let reader = claxon::FlacReader::open(path)?;
+            let info = reader.streaminfo();
+            let bit_depth = info.bits_per_sample as u16;
+            let channels = info.channels as u16;
+            validate_shape(bit_depth, channels)?;
+            AudioSpec {
+                bit_depth,
+                sample_rate: info.sample_rate,
+                channels,
+                frames: info.samples,
+            }
+        }
+    };
+    Ok((spec, format))
+}
+
 /// Decode any supported input into a [`PcmBuffer`], dispatching on extension.
 pub fn read(path: &Path) -> Result<(PcmBuffer, SourceFormat), CodecError> {
     let format = detect_format(path)?;

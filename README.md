@@ -48,10 +48,17 @@ All sample math lives in `intwav-core`, which is `no_std` + `alloc`, has no depe
 
 ```
 crates/
-  intwav-core   integer-only DSP: analysis, dBFS, slicing, gain/fade/DC, TPDF dither (float-scanned)
-  intwav-codec  WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O + metadata
-  intwav-cli    the `intwav` binary: command parsing, file I/O, JSON reports, checksums
+  intwav-core    integer-only DSP: analysis, windowed silence, dBFS, slicing, gain/fade/DC, TPDF dither (float-scanned)
+  intwav-codec   WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O, metadata, header probe
+  intwav-engine  shared CLI/GUI engine: ops, frozen JSON report, coded errors, verified atomic writes, waveform pyramid (float-free source)
+  intwav-cli     the `intwav` binary: thin front-end over the engine
 ```
+
+The `intwav-engine` crate is the foundation for a forthcoming GUI (Tauri +
+React): every operation is synchronous and caller-driven (progress + cancel),
+every write is verified (`pcm_verified`), and the CLI and GUI share it verbatim.
+The GUI itself, an `intwav-playback` layer, and a seekable streaming decoder are
+staged as later phases.
 
 ## Build & test
 

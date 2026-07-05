@@ -47,6 +47,19 @@ pub fn gain_q31_for_db(db: i32) -> Option<i64> {
     Some(GAIN_Q31[(db - GAIN_DB_MIN) as usize])
 }
 
+/// Absolute sample magnitude corresponding to a dBFS level (`neg_db <= 0`) at a
+/// given bit depth, via the Q31 gain table. Float-free (no `pow`). Returns
+/// `None` if `neg_db` is positive or below the table's -96 dB floor. Useful for
+/// turning a user-facing dBFS silence threshold into an integer magnitude.
+pub fn magnitude_for_dbfs(bit_depth: u16, neg_db: i32) -> Option<i64> {
+    if neg_db > 0 {
+        return None;
+    }
+    let coeff = gain_q31_for_db(neg_db)?;
+    let full = full_scale_magnitude(bit_depth) as i128;
+    Some(((full * coeff as i128) >> 31) as i64)
+}
+
 /// Round-half-away-from-zero arithmetic right shift of a 128-bit value.
 fn round_shift(v: i128, shift: u32) -> i128 {
     let half = 1i128 << (shift - 1);

@@ -25,7 +25,7 @@ Comandos implementados:
 | `intwav fade-out <in> <out> --duration <d>` | Fade-out lineal de punto fijo |
 | `intwav dc-correct <in> <out>` | Eliminar el desplazamiento DC por canal |
 | `intwav export16 <in> <out> [--dither tpdf]` | Salida derivada de 16 bits con dithering TPDF (no es un máster) |
-| `intwav verify <a> [b]` | Calcular suma de comprobación PCM, o demostrar que dos archivos contienen idéntico PCM |
+| `intwav verify <a> [b]` | Calcular suma de comprobación PCM, o demostrar que two archivos contienen idéntico PCM |
 
 Las marcas de tiempo están en formato `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm` o en segundos simples; las duraciones también aceptan `5s` / `250ms`.
 Todos los comandos de procesamiento aceptan `--output-format flac|wav` (por defecto: se deduce por la extensión de salida; si no, FLAC) y `--report <path>` para generar un informe de procesamiento JSON (§13/§22) que incluye sumas de comprobación SHA-256 del PCM y un hash del registro de procesamiento.
@@ -42,14 +42,19 @@ La ganancia, los fades, la corrección DC y el dithering de 16 bits son operacio
 
 Todas las matemáticas de muestras residen en `intwav-core`, que es `no_std` + `alloc`, no tiene dependencias y **no utiliza punto flotante** — incluido dBFS, que se calcula con una aproximación logarítmica de enteros de punto fijo (precisión < 0.004 dB). La decodificación FLAC utiliza `claxon` puro en Rust; la codificación FLAC se delega al binario externo `flac`, por lo que el análisis interno de punto flotante de libFLAC nunca entra en este proceso.
 
+`scripts/check-no-float.sh` impone esto en CI: escanea el código fuente en busca de construcciones de punto flotante y desensambla el objeto compilado, haciendo fallar la compilación si aparece cualquier instrucción aritmética de punto flotante (x86-64 SSE/x87 o aarch64 FP).
+
 ## Arquitectura
 
 ```
 crates/
-  intwav-core   DSP puramente entero: análisis, dBFS, segmentación, ganancia/fade/DC, dither TPDF (escaneado sin flotantes)
-  intwav-codec  E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI) + metadatos
-  intwav-cli    el binario `intwav`: análisis de comandos, E/S de archivos, informes JSON, sumas de comprobación
+  intwav-core    DSP puramente entero: análisis, detección de silencio con ventanas, dBFS, segmentación, ganancia/fade/DC, dither TPDF (escaneado sin flotantes)
+  intwav-codec   E/S entera de WAV (hound) + FLAC (decodificación claxon / codificación flac-CLI), metadatos, sonda de encabezado
+  intwav-engine  motor compartido para CLI/GUI: operaciones, informe JSON congelado, errores codificados, escrituras atómicas verificadas, pirámide de forma de onda (fuente libre de flotantes)
+  intwav-cli     el binario `intwav`: interfaz ligera sobre el motor
 ```
+
+La crate `intwav-engine` es la base de una futura interfaz gráfica (GUI con Tauri + React): cada operación es síncrona y controlada por el llamante (progreso + cancelación), cada escritura es verificada (`pcm_verified`), y la CLI junto con la GUI lo comparten literalmente. La propia GUI, una capa `intwav-playback` y un decodificador de streaming con capacidad de búsqueda (seekable) están planificados para fases posteriores.
 
 ## Compilación y pruebas
 

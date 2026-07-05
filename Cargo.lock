@@ -216,10 +216,8 @@ dependencies = [
  "anyhow",
  "clap",
  "intwav-codec",
- "intwav-core",
- "serde",
+ "intwav-engine",
  "serde_json",
- "sha2",
  "tempfile",
 ]
 
@@ -237,6 +235,18 @@ dependencies = [
 [[package]]
 name = "intwav-core"
 version = "0.1.0"
+
+[[package]]
+name = "intwav-engine"
+version = "0.1.0"
+dependencies = [
+ "intwav-codec",
+ "intwav-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
 
 [[package]]
 name = "is_terminal_polyfill"

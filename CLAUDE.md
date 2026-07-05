@@ -25,9 +25,15 @@ disassembled release object. Run it after any change to core:
 bash scripts/check-no-float.sh
 ```
 
-The codec and CLI crates may use float via dependencies; only the core is
-scanned. FLAC encoding is deliberately delegated to the external `flac` binary
-(see `intwav-codec/src/flac.rs`) to keep libFLAC's float analysis out of process.
+The check covers **two crates**: a source-token ban on `intwav-core` **and**
+`intwav-engine` (the save-path orchestrator has no legitimate float need —
+progress is integer permille, ratios are raw byte/sample counts), plus a
+disassembly scan of the `intwav-core` object only (the engine links the codec's
+float FLAC/WAV libs, so its object can't be cleanly disassembled). The codec,
+CLI, and future GUI/playback crates may use float and are not scanned. FLAC
+encoding is deliberately delegated to the external `flac` binary (see
+`intwav-codec/src/flac.rs`) to keep libFLAC's float analysis out of process; the
+engine takes a configurable `flac` path so the GUI can inject a bundled sidecar.
 
 ## Layout
 
@@ -35,13 +41,21 @@ scanned. FLAC encoding is deliberately delegated to the external `flac` binary
   `frame_slice`, gain (`apply_gain_q31`, `gain_q31_for_db`), fades
   (`apply_fade_in/out`), `apply_dc_correction`, and `requantize_to_16` + `Rng`
   (`dither.rs`). Gain uses a precomputed Q31 table; no `pow`/float anywhere.
-- `crates/intwav-codec` — `PcmBuffer`, `Metadata`, WAV/FLAC read (`read`), WAV
-  write, FLAC encode (with Vorbis tags). Decode never routes samples through
-  float; unsupported/float input is an explicit error, never a silent conversion.
-- `crates/intwav-cli` — the `intwav` binary; one submodule per command group
-  under `commands/` (inspect, trim, split, edit, export, verify), parameter
-  parsing in `params.rs`/`timecode.rs`, unified `OpReport` in `report.rs`,
-  SHA-256 helpers in `hash.rs`.
+- `crates/intwav-codec` — `PcmBuffer`, `Metadata`, WAV/FLAC read (`read`), header
+  `probe`, WAV write, FLAC encode (with Vorbis tags, configurable `flac` path).
+  Decode never routes samples through float; unsupported/float input is an
+  explicit error, never a silent conversion.
+- `crates/intwav-engine` — the shared CLI/GUI engine (float-free in source). The
+  operations (`trim`/`split`/`gain`/`fade`/`dc_correct`/`export16`/`verify`/
+  `analyze_file`) are synchronous and caller-driven (`ProgressSink` +
+  `CancelToken`); the frozen §13 `ProcessReport`, coded `EngineError`, verified
+  atomic writes (`write_verified` → `pcm_verified`), SHA-256 helpers, and the
+  waveform pyramid all live here. Ops take typed params (frames/dB), never
+  strings.
+- `crates/intwav-cli` — the `intwav` binary; a thin front-end over the engine.
+  One submodule per command group under `commands/`; argument/timecode/CUE
+  parsing in `params.rs`/`timecode.rs`. Output-producing commands take
+  `--overwrite`/`-f` (the engine refuses `OUTPUT_EXISTS` otherwise).
 
 ## Conventions
 

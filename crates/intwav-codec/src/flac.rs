@@ -5,6 +5,7 @@
 //! uses floating point internally for LPC analysis, and keeping it out of the
 //! intwav process is what lets `intwav-core` pass the disassembly float-scan.
 
+use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process::Command;
@@ -43,7 +44,15 @@ pub fn read_flac_tags(path: &Path) -> Result<Metadata, CodecError> {
 /// `flac` encoder. The output PCM is bit-exact with the input (FLAC is
 /// lossless); only the container bytes differ (spec §9.3). `tags` become Vorbis
 /// comments on the output.
-pub fn encode_flac(pcm: &PcmBuffer, out_path: &Path, tags: &Metadata) -> Result<(), CodecError> {
+///
+/// `flac_exe` is the encoder to run — the string `"flac"` for a `PATH` lookup
+/// (CLI), or an absolute path to a bundled sidecar binary (GUI).
+pub fn encode_flac(
+    pcm: &PcmBuffer,
+    out_path: &Path,
+    tags: &Metadata,
+    flac_exe: &OsStr,
+) -> Result<(), CodecError> {
     validate_shape(pcm.bit_depth, pcm.channels)?;
 
     // Write the PCM to a temp WAV that `flac` will consume.
@@ -53,7 +62,7 @@ pub fn encode_flac(pcm: &PcmBuffer, out_path: &Path, tags: &Metadata) -> Result<
         .tempfile()?;
     write_wav(pcm, tmp.path())?;
 
-    let mut cmd = Command::new("flac");
+    let mut cmd = Command::new(flac_exe);
     cmd.arg("--best").arg("--silent").arg("--force");
     for (key, value) in tags {
         cmd.arg(format!("--tag={key}={value}"));
@@ -102,7 +111,7 @@ mod tests {
             ("TITLE".to_string(), "Round Trip".to_string()),
             ("ARTIST".to_string(), "intwav".to_string()),
         ];
-        encode_flac(&pcm, &flac_path, &tags).unwrap();
+        encode_flac(&pcm, &flac_path, &tags, OsStr::new("flac")).unwrap();
         let back = read_flac(&flac_path).unwrap();
         assert_eq!(
             back.samples, pcm.samples,

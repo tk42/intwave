@@ -1,34 +1,25 @@
-//! `split` — divide a transfer into tracks by CUE list, silence, or A/B side.
+//! `split` — compute track boundaries (CUE/silence/AB) then delegate the actual
+//! rendering to the engine.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use intwav_codec::{read, Metadata, OutputFormat, PcmBuffer};
-use intwav_core::frame_slice;
-use serde_json::json;
+use intwav_engine::{
+    analyze_file, probe, split, CancelToken, NoProgress, OutputFormat, Segment, SplitParams,
+};
 
-use super::{analyze_pcm, output_format_str, write_output};
-use crate::hash::pcm_sha256;
+use super::{engine_config, maybe_write_report};
 use crate::params::parse_cue;
-use crate::report::OpReport;
 use crate::timecode::ns_to_frame;
 
 /// How to determine track boundaries.
 pub enum SplitMode {
-    /// CUE-style text file of `timestamp title` lines.
     Cue(PathBuf),
-    /// Split at the midpoint of each detected silent region.
     Silence,
-    /// Two tracks (A/B side) split at the longest silence, else the midpoint.
     Ab,
 }
 
-struct Segment {
-    from_frame: u64,
-    to_frame: u64,
-    title: String,
-}
-
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_split(
     input: &Path,
     out_dir: &Path,
@@ -36,109 +27,77 @@ pub fn cmd_split(
     output_format: Option<OutputFormat>,
     album: Option<&str>,
     artist: Option<&str>,
-    report_path: Option<&Path>,
+    report: Option<&Path>,
+    overwrite: bool,
 ) -> Result<()> {
-    let (pcm, source) = read(input).with_context(|| format!("reading {}", input.display()))?;
-    let frames = pcm.frames();
-
     let segments = match mode {
-        SplitMode::Cue(ref path) => segments_from_cue(path, &pcm)?,
-        SplitMode::Silence => segments_from_silence(&pcm)?,
-        SplitMode::Ab => segments_ab(&pcm)?,
+        SplitMode::Cue(ref path) => segments_from_cue(input, path)?,
+        SplitMode::Silence => segments_from_silence(input)?,
+        SplitMode::Ab => segments_ab(input)?,
     };
 
-    std::fs::create_dir_all(out_dir)
-        .with_context(|| format!("creating output directory {}", out_dir.display()))?;
-
-    // FLAC unless the caller overrides; extension follows the format.
-    let fmt = output_format.unwrap_or(OutputFormat::Flac);
-    let ext = match fmt {
-        OutputFormat::Flac => "flac",
-        OutputFormat::Wav => "wav",
+    // FLAC unless the caller overrides.
+    let format = output_format.unwrap_or(OutputFormat::Flac);
+    let p = SplitParams {
+        segments,
+        album: album.map(|s| s.to_string()),
+        artist: artist.map(|s| s.to_string()),
+        format,
+        overwrite,
     };
 
-    let mut output_files = Vec::new();
-    let mut seg_reports = Vec::new();
+    let r = split(
+        input,
+        out_dir,
+        &p,
+        &engine_config(),
+        &NoProgress,
+        &CancelToken::new(),
+    )
+    .map_err(anyhow::Error::new)?;
 
-    for (i, seg) in segments.iter().enumerate() {
-        let track_no = i + 1;
-        let slice = frame_slice(
-            &pcm.samples,
-            pcm.channels as usize,
-            seg.from_frame,
-            seg.to_frame,
-        )
-        .context("selecting track range")?;
-        let track_pcm = PcmBuffer {
-            bit_depth: pcm.bit_depth,
-            sample_rate: pcm.sample_rate,
-            channels: pcm.channels,
-            samples: slice.to_vec(),
-        };
-
-        let filename = track_filename(track_no, &seg.title, ext);
-        let out_path = out_dir.join(&filename);
-
-        let tags = build_tags(track_no, &seg.title, album, artist);
-        write_output(&track_pcm, &out_path, fmt, &tags)?;
-
-        println!(
-            "Track {track_no:02} [{}, {}) -> {} ({} frames)",
-            seg.from_frame,
-            seg.to_frame,
-            out_path.display(),
-            seg.to_frame - seg.from_frame
-        );
-
-        if report_path.is_some() {
-            seg_reports.push(json!({
-                "track": track_no,
-                "title": seg.title,
-                "from_sample": seg.from_frame,
-                "to_sample": seg.to_frame,
-                "file": out_path.display().to_string(),
-                "pcm_sha256": pcm_sha256(&track_pcm),
-            }));
-        }
-        output_files.push(out_path.display().to_string());
+    for (i, file) in r.output_files.iter().enumerate() {
+        println!("Track {:02} -> {file}", i + 1);
     }
-
-    if let Some(report_path) = report_path {
-        let mut report = OpReport::new("split");
-        report.input_file = Some(input.display().to_string());
-        report.output_files = output_files;
-        report.input_format = Some(source.as_str().to_string());
-        report.output_format = Some(output_format_str(fmt).to_string());
-        report.decoded_pcm_bit_depth = pcm.bit_depth;
-        report.sample_rate = pcm.sample_rate;
-        report.channels = pcm.channels;
-        report.parameters = Some(json!({ "tracks": seg_reports, "total_frames": frames }));
-        report.input_pcm_sha256 = Some(pcm_sha256(&pcm));
-        report.finalize_log_hash();
-        report.write(report_path)?;
-    }
+    maybe_write_report(&r, report)?;
     Ok(())
 }
 
-fn segments_from_cue(path: &Path, pcm: &PcmBuffer) -> Result<Vec<Segment>> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading cue file {}", path.display()))?;
+fn frame_count(input: &Path) -> Result<(u32, u64)> {
+    let (spec, _) = probe(input)
+        .map_err(anyhow::Error::new)
+        .with_context(|| format!("reading {}", input.display()))?;
+    let frames = match spec.frames {
+        Some(f) => f,
+        None => {
+            analyze_file(input, None)
+                .map_err(anyhow::Error::new)?
+                .frames
+        }
+    };
+    Ok((spec.sample_rate, frames))
+}
+
+fn segments_from_cue(input: &Path, cue: &Path) -> Result<Vec<Segment>> {
+    let (rate, frames) = frame_count(input)?;
+    let text = std::fs::read_to_string(cue)
+        .with_context(|| format!("reading cue file {}", cue.display()))?;
     let points = parse_cue(&text).map_err(|e| anyhow::anyhow!(e))?;
-    let frames = pcm.frames();
+
     let mut segs = Vec::new();
-    for (i, p) in points.iter().enumerate() {
-        let from = ns_to_frame(p.start_ns, pcm.sample_rate).min(frames);
+    for (i, pt) in points.iter().enumerate() {
+        let from = ns_to_frame(pt.start_ns, rate).min(frames);
         let to = points
             .get(i + 1)
-            .map(|n| ns_to_frame(n.start_ns, pcm.sample_rate).min(frames))
+            .map(|n| ns_to_frame(n.start_ns, rate).min(frames))
             .unwrap_or(frames);
         if to <= from {
             continue;
         }
-        let title = if p.title.is_empty() {
+        let title = if pt.title.is_empty() {
             format!("Track {:02}", i + 1)
         } else {
-            p.title.clone()
+            pt.title.clone()
         };
         segs.push(Segment {
             from_frame: from,
@@ -149,11 +108,10 @@ fn segments_from_cue(path: &Path, pcm: &PcmBuffer) -> Result<Vec<Segment>> {
     Ok(segs)
 }
 
-fn segments_from_silence(pcm: &PcmBuffer) -> Result<Vec<Segment>> {
-    let analysis = analyze_pcm(pcm)?;
-    let frames = pcm.frames();
-    // Split points at the midpoint of each silent region.
-    let mut cuts: Vec<u64> = analysis
+fn segments_from_silence(input: &Path) -> Result<Vec<Segment>> {
+    let a = analyze_file(input, None).map_err(anyhow::Error::new)?;
+    let frames = a.frames;
+    let mut cuts: Vec<u64> = a
         .silent_regions
         .iter()
         .map(|r| (r.start_frame + r.end_frame) / 2)
@@ -180,14 +138,13 @@ fn segments_from_silence(pcm: &PcmBuffer) -> Result<Vec<Segment>> {
     Ok(segs)
 }
 
-fn segments_ab(pcm: &PcmBuffer) -> Result<Vec<Segment>> {
-    let analysis = analyze_pcm(pcm)?;
-    let frames = pcm.frames();
-    // Split at the longest silent region's midpoint, else the file midpoint.
-    let cut = analysis
+fn segments_ab(input: &Path) -> Result<Vec<Segment>> {
+    let a = analyze_file(input, None).map_err(anyhow::Error::new)?;
+    let frames = a.frames;
+    let cut = a
         .silent_regions
         .iter()
-        .max_by_key(|r| r.len_frames())
+        .max_by_key(|r| r.end_frame - r.start_frame)
         .map(|r| (r.start_frame + r.end_frame) / 2)
         .filter(|&c| c > 0 && c < frames)
         .unwrap_or(frames / 2);
@@ -203,39 +160,4 @@ fn segments_ab(pcm: &PcmBuffer) -> Result<Vec<Segment>> {
             title: "B".to_string(),
         },
     ])
-}
-
-fn build_tags(track_no: usize, title: &str, album: Option<&str>, artist: Option<&str>) -> Metadata {
-    let mut tags = Metadata::new();
-    if !title.is_empty() {
-        tags.push(("TITLE".to_string(), title.to_string()));
-    }
-    tags.push(("TRACKNUMBER".to_string(), track_no.to_string()));
-    if let Some(album) = album {
-        tags.push(("ALBUM".to_string(), album.to_string()));
-    }
-    if let Some(artist) = artist {
-        tags.push(("ARTIST".to_string(), artist.to_string()));
-    }
-    tags
-}
-
-/// Build a filesystem-safe track filename.
-fn track_filename(track_no: usize, title: &str, ext: &str) -> String {
-    let sanitized: String = title
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let sanitized = sanitized.trim();
-    if sanitized.is_empty() {
-        format!("track{track_no:02}.{ext}")
-    } else {
-        format!("{track_no:02} {sanitized}.{ext}")
-    }
 }

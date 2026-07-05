@@ -50,7 +50,7 @@ fn info_runs_on_wav() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("Decoded PCM: 24-bit integer"));
-    assert!(stdout.contains("Floating point used: no"));
+    assert!(stdout.contains("Floating point used in save path: no"));
 }
 
 #[test]
@@ -92,9 +92,10 @@ fn trim_wav_preserves_exact_samples_and_report() {
     assert_eq!(json["from_sample"], 480);
     assert_eq!(json["to_sample"], 960);
     assert_eq!(json["sample_values_modified"], false);
-    assert_eq!(json["floating_point_used"], false);
+    assert_eq!(json["floating_point_used_in_save_path"], false);
     assert_eq!(json["resampled"], false);
     assert_eq!(json["requantized"], false);
+    assert_eq!(json["pcm_verified"], true);
     assert_eq!(json["operation"], "trim");
 }
 
@@ -348,6 +349,59 @@ fn verify_detects_identical_and_different() {
     assert!(same.status.success());
     let diff = run(&["verify", a.to_str().unwrap(), c.to_str().unwrap()]);
     assert!(!diff.status.success());
+}
+
+#[test]
+fn cli_render_matches_engine_render() {
+    // The central Q21 guard: the CLI and a direct engine call must produce
+    // byte-identical PCM. Both go through intwav-engine, so this catches any
+    // divergence in how the CLI maps arguments to engine parameters.
+    use intwav_engine::{trim as engine_trim, CancelToken, EngineConfig, NoProgress, TrimParams};
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let cli_out = dir.path().join("cli.wav");
+    let eng_out = dir.path().join("eng.wav");
+    write_wav(&ramp_pcm(2000, 48_000), &input).unwrap();
+
+    // Engine render directly: 0.010s..0.020s at 48k -> frames [480, 960).
+    let p = TrimParams {
+        from_frame: 480,
+        to_frame: 960,
+        format: intwav_codec::OutputFormat::Wav,
+        overwrite: false,
+    };
+    engine_trim(
+        &input,
+        &eng_out,
+        &p,
+        &EngineConfig::default(),
+        &NoProgress,
+        &CancelToken::new(),
+    )
+    .unwrap();
+
+    // CLI render with the equivalent timestamps.
+    let out = run(&[
+        "trim",
+        input.to_str().unwrap(),
+        cli_out.to_str().unwrap(),
+        "--from",
+        "0.010",
+        "--to",
+        "0.020",
+        "--output-format",
+        "wav",
+    ]);
+    assert!(out.status.success(), "{:?}", out);
+
+    let (cli_pcm, _) = read(&cli_out).unwrap();
+    let (eng_pcm, _) = read(&eng_out).unwrap();
+    assert_eq!(
+        intwav_engine::pcm_sha256(&cli_pcm),
+        intwav_engine::pcm_sha256(&eng_pcm),
+        "CLI and engine renders must be byte-identical"
+    );
 }
 
 #[test]

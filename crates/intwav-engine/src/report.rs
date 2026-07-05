@@ -1,19 +1,19 @@
-//! JSON processing reports (spec §13, strengthened for §20/§22).
-//!
-//! A single [`OpReport`] shape covers every operation. Boolean invariants
-//! document that the tool used no float / dither / resample / requantize unless
-//! explicitly stated, and the optional hash fields provide PCM checksums and a
-//! processing-log hash for archival provenance.
+//! Frozen v1.0 processing report (spec §13). This is a public contract shared
+//! by the CLI and GUI: the common §13.2 block is typed top-level fields;
+//! per-operation §13.3 specifics live under `parameters`. Field names and the
+//! machine layer never localize.
 
 use std::path::Path;
 
-use anyhow::Context;
+use intwav_core::NEG_INF_CB;
 use serde::Serialize;
+
+use crate::error::EngineResult;
 
 pub const TOOL_NAME: &str = "intwav";
 pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Peak dBFS per channel, as strings (matching the spec example).
+/// Peak dBFS per channel, as strings.
 #[derive(Debug, Clone, Serialize)]
 pub struct PeakDbfs {
     pub left: String,
@@ -21,10 +21,36 @@ pub struct PeakDbfs {
     pub right: Option<String>,
 }
 
-/// Unified processing report. Fields that do not apply to an operation are
+/// Format a centibel (1/100 dB) value as a one-decimal dB string (integer-only,
+/// so the engine stays float-free). The silence sentinel renders as `"-inf"`.
+pub fn format_dbfs(centibels: i32) -> String {
+    if centibels == NEG_INF_CB {
+        return "-inf".to_string();
+    }
+    let den = 10i64;
+    let half = den / 2;
+    let num = centibels as i64;
+    let tenths = if num >= 0 {
+        (num + half) / den
+    } else {
+        -((-num + half) / den)
+    };
+    let neg = tenths < 0;
+    let mag = tenths.unsigned_abs();
+    format!("{}{}.{}", if neg { "-" } else { "" }, mag / 10, mag % 10)
+}
+
+/// Build a per-channel [`PeakDbfs`] from centibel values.
+pub fn peak_dbfs(centibels: &[i32]) -> PeakDbfs {
+    let left = format_dbfs(centibels.first().copied().unwrap_or(NEG_INF_CB));
+    let right = centibels.get(1).map(|&c| format_dbfs(c));
+    PeakDbfs { left, right }
+}
+
+/// The unified processing report. Fields not relevant to an operation are
 /// omitted from the JSON.
 #[derive(Debug, Default, Serialize)]
-pub struct OpReport {
+pub struct ProcessReport {
     pub tool: &'static str,
     pub version: &'static str,
     pub operation: String,
@@ -47,16 +73,19 @@ pub struct OpReport {
     pub to_sample: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<serde_json::Value>,
+    // ---- §13.2 common invariant block ----
     pub sample_values_modified: bool,
-    pub floating_point_used: bool,
+    pub floating_point_used_in_save_path: bool,
+    pub requantized: bool,
     pub dither_used: bool,
     pub resampled: bool,
-    pub requantized: bool,
+    pub clipped_samples: u64,
+    pub pcm_verified: bool,
+    // ---- optional levels / checksums ----
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peak_before_dbfs: Option<PeakDbfs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peak_after_dbfs: Option<PeakDbfs>,
-    pub clipped_samples: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_pcm_sha256: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,20 +94,20 @@ pub struct OpReport {
     pub processing_log_sha256: Option<String>,
 }
 
-impl OpReport {
-    /// A report pre-filled with the tool identity and the float-free invariant.
+impl ProcessReport {
+    /// A report pre-filled with tool identity and the float-free invariant.
     pub fn new(operation: &str) -> Self {
         Self {
             tool: TOOL_NAME,
             version: TOOL_VERSION,
             operation: operation.to_string(),
-            floating_point_used: false,
+            floating_point_used_in_save_path: false,
             ..Default::default()
         }
     }
 
     /// Compute `processing_log_sha256` over the canonical report (with the hash
-    /// field itself excluded), then store it.
+    /// field excluded), then store it.
     pub fn finalize_log_hash(&mut self) {
         self.processing_log_sha256 = None;
         let canonical = serde_json::to_string(self).unwrap_or_default();
@@ -86,9 +115,11 @@ impl OpReport {
     }
 
     /// Serialize to pretty JSON at `path`.
-    pub fn write(&self, path: &Path) -> anyhow::Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json).with_context(|| format!("writing report {}", path.display()))?;
+    pub fn write(&self, path: &Path) -> EngineResult<()> {
+        let json = serde_json::to_string_pretty(self).map_err(|e| {
+            crate::error::EngineError::new(crate::error::ErrorCode::IoError, e.to_string())
+        })?;
+        std::fs::write(path, json)?;
         Ok(())
     }
 }

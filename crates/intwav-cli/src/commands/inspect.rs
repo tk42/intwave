@@ -1,43 +1,59 @@
-//! Read-only inspection commands: info, check, peak, clips.
+//! Read-only inspection: info, check, peak, clips.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use intwav_codec::read;
+use intwav_engine::{analyze_file, format_dbfs, AudioReport};
 
-use super::{analyze_pcm, channel_label, label_and_space, peak_dbfs_cb, print_info_block};
-use crate::format::format_dbfs;
+use super::{channel_label, label_and_space};
 use crate::timecode::format_duration;
 
+fn analyze(input: &Path) -> Result<AudioReport> {
+    analyze_file(input, None)
+        .map_err(|e| anyhow::anyhow!(e))
+        .with_context(|| format!("reading {}", input.display()))
+}
+
+fn print_info_block(a: &AudioReport) {
+    println!("Format: {}", a.format);
+    println!("Decoded PCM: {}-bit integer", a.bit_depth);
+    println!("Sample rate: {} Hz", a.sample_rate);
+    println!("Channels: {}", a.channels);
+    println!("Total frames: {}", a.frames);
+    println!("Duration: {}", format_duration(a.frames, a.sample_rate));
+    for ch in 0..a.channels as usize {
+        let (label, space) = label_and_space(a.channels, ch);
+        println!(
+            "Peak{space}{label}: {} dBFS",
+            format_dbfs(a.peak_centibels[ch])
+        );
+    }
+    println!("Clipped samples: {}", a.total_clipped);
+    println!("Processing mode: integer-only");
+    println!("Floating point used in save path: no");
+}
+
 pub fn cmd_info(input: &Path) -> Result<()> {
-    let (pcm, source) = read(input).with_context(|| format!("reading {}", input.display()))?;
-    let analysis = analyze_pcm(&pcm)?;
-    print_info_block(&pcm, source.as_str(), &analysis);
+    print_info_block(&analyze(input)?);
     Ok(())
 }
 
 pub fn cmd_check(input: &Path) -> Result<()> {
-    let (pcm, source) = read(input).with_context(|| format!("reading {}", input.display()))?;
-    let analysis = analyze_pcm(&pcm)?;
-    print_info_block(&pcm, source.as_str(), &analysis);
-
-    // Extra inspection beyond info: DC offset and silence.
-    for ch in 0..pcm.channels as usize {
-        let (label, space) = label_and_space(pcm.channels, ch);
-        println!(
-            "DC offset{space}{label}: {}",
-            analysis.per_channel[ch].dc_offset(analysis.frames)
-        );
+    let a = analyze(input)?;
+    print_info_block(&a);
+    for ch in 0..a.channels as usize {
+        let (label, space) = label_and_space(a.channels, ch);
+        println!("DC offset{space}{label}: {}", a.dc_offset[ch]);
     }
-    if analysis.silent_regions.is_empty() {
+    if a.silent_regions.is_empty() {
         println!("Silent regions: none");
     } else {
-        println!("Silent regions: {}", analysis.silent_regions.len());
-        for region in &analysis.silent_regions {
+        println!("Silent regions: {}", a.silent_regions.len());
+        for r in &a.silent_regions {
             println!(
                 "  {} - {}",
-                format_duration(region.start_frame, pcm.sample_rate),
-                format_duration(region.end_frame, pcm.sample_rate)
+                format_duration(r.start_frame, a.sample_rate),
+                format_duration(r.end_frame, a.sample_rate)
             );
         }
     }
@@ -45,30 +61,24 @@ pub fn cmd_check(input: &Path) -> Result<()> {
 }
 
 pub fn cmd_peak(input: &Path) -> Result<()> {
-    let (pcm, _source) = read(input).with_context(|| format!("reading {}", input.display()))?;
-    let analysis = analyze_pcm(&pcm)?;
-    for ch in 0..pcm.channels as usize {
-        let (label, space) = label_and_space(pcm.channels, ch);
+    let a = analyze(input)?;
+    for ch in 0..a.channels as usize {
+        let (label, space) = label_and_space(a.channels, ch);
         println!(
             "Peak{space}{label}: {} dBFS (raw {})",
-            format_dbfs(peak_dbfs_cb(&analysis, ch)),
-            analysis.per_channel[ch].peak_magnitude
+            format_dbfs(a.peak_centibels[ch]),
+            a.peak_magnitude[ch]
         );
     }
     Ok(())
 }
 
 pub fn cmd_clips(input: &Path) -> Result<()> {
-    let (pcm, _source) = read(input).with_context(|| format!("reading {}", input.display()))?;
-    let analysis = analyze_pcm(&pcm)?;
-    println!("Clipped samples: {}", analysis.total_clipped());
-    if pcm.channels > 1 {
-        for ch in 0..pcm.channels as usize {
-            println!(
-                "  {}: {}",
-                channel_label(pcm.channels, ch),
-                analysis.per_channel[ch].clipped
-            );
+    let a = analyze(input)?;
+    println!("Clipped samples: {}", a.total_clipped);
+    if a.channels > 1 {
+        for ch in 0..a.channels as usize {
+            println!("  {}: {}", channel_label(a.channels, ch), a.clipped[ch]);
         }
     }
     Ok(())

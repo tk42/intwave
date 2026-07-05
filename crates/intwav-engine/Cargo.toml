@@ -1,0 +1,18 @@
+[package]
+name = "intwav-engine"
+description = "Shared CLI/GUI engine for intwav: operations, reports, verified atomic writes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+intwav-core.workspace = true
+intwav-codec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

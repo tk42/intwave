@@ -12,13 +12,12 @@ name = "intwav"
 path = "src/main.rs"
 
 [dependencies]
-intwav-core.workspace = true
-intwav-codec.workspace = true
+intwav-engine.workspace = true
 clap.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 anyhow.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
+intwav-codec.workspace = true
+intwav-engine.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true

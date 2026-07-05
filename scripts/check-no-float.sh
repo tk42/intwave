@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 #
-# check-no-float.sh — enforce the float-free guarantee of intwav-core (spec §14).
+# check-no-float.sh — enforce the float-free guarantee of the save path (spec §14).
 #
-# Two independent checks:
-#   1. Source scan: intwav-core must contain no float types, casts, or math.
-#   2. Disassembly scan: the compiled intwav-core object must contain no
-#      floating-point arithmetic instructions (x86-64 SSE/x87 or aarch64 FP).
+# Checks:
+#   1. Source scan of intwav-core AND intwav-engine: no float types, casts, math,
+#      or decimal literals. The engine has no legitimate float need (progress is
+#      integer permille, ratios are raw byte/sample counts computed GUI-side).
+#   2. Disassembly scan of the compiled intwav-core object: no floating-point
+#      arithmetic instructions (x86-64 SSE/x87 or aarch64 FP).
 #
-# Scope is intentionally intwav-core ONLY. The codec (WAV/FLAC) and CLI crates
-# may legitimately touch float via dependencies; FLAC encoding is delegated to
-# an out-of-process `flac` binary precisely so the core stays clean.
+# The disassembly scan is core-only: the engine links the codec (which links the
+# float FLAC/WAV libs), so its object cannot be cleanly disassembled — the
+# source-token ban is the enforceable guarantee there. The codec, CLI, GUI, and
+# playback crates are presentation/host layers and are not scanned.
 #
 # Exit non-zero on any violation so CI fails the build.
 
@@ -17,6 +20,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORE_SRC="$REPO_ROOT/crates/intwav-core/src"
+ENGINE_SRC="$REPO_ROOT/crates/intwav-engine/src"
 DENYLIST="$REPO_ROOT/scripts/fp-mnemonics.txt"
 
 fail() {
@@ -24,44 +28,42 @@ fail() {
 	exit 1
 }
 
-echo "==> [1/2] Source scan of intwav-core"
-# Exclude test modules: test code is allowed to reference f64 for reference
-# calculations and never ships in the scanned object. We scan whole files but
-# tolerate matches inside `#[cfg(test)]` by scanning only non-test lines is hard
-# in pure grep; instead we forbid float constructs everywhere EXCEPT lines that
-# are clearly test-only. Simplest robust rule: forbid in all .rs files but allow
-# the dedicated test helper by scanning files and skipping `mod tests` blocks.
-#
-# Pragmatic approach: grep for float tokens; if any hit is outside a test
-# module, fail. We implement this by stripping test modules first.
-violations=0
-while IFS= read -r -d '' file; do
-	# Remove `#[cfg(test)] mod tests { ... }` blocks (to end of file) before scan.
-	# Drop `#[cfg(test)] mod tests { ... }` (to EOF) and strip line comments so
-	# prose in doc comments (which may mention numbers like 6.02) is ignored.
-	stripped="$(awk '
-		/#\[cfg\(test\)\]/ { intest=1 }
-		intest==1 { next }
-		{ sub(/\/\/.*/, ""); print }
-	' "$file")"
+# Scan one crate's src/ for float constructs, ignoring test modules and comments.
+scan_source() {
+	local src_dir="$1"
+	local label="$2"
+	local violations=0
+	local file stripped
+	while IFS= read -r -d '' file; do
+		# Drop `#[cfg(test)] mod tests { ... }` (to EOF) and strip line comments
+		# so prose in doc comments (numbers like 6.02) is ignored.
+		stripped="$(awk '
+			/#\[cfg\(test\)\]/ { intest=1 }
+			intest==1 { next }
+			{ sub(/\/\/.*/, ""); print }
+		' "$file")"
 
-	if echo "$stripped" | grep -nE '\b(f32|f64)\b|\bas +f(32|64)\b|std::f(32|64)|\blibm\b' >/dev/null; then
-		echo "  float type/cast/lib in ${file#"$REPO_ROOT"/}:" >&2
-		echo "$stripped" | grep -nE '\b(f32|f64)\b|\bas +f(32|64)\b|std::f(32|64)|\blibm\b' >&2 || true
-		violations=1
-	fi
-	# Decimal literals (e.g. 0.5, 1.0) — a float would need one.
-	if echo "$stripped" | grep -nE '[^.0-9][0-9]+\.[0-9]+' >/dev/null; then
-		echo "  decimal literal in ${file#"$REPO_ROOT"/}:" >&2
-		echo "$stripped" | grep -nE '[^.0-9][0-9]+\.[0-9]+' >&2 || true
-		violations=1
-	fi
-done < <(find "$CORE_SRC" -name '*.rs' -print0)
+		if echo "$stripped" | grep -nE '\b(f32|f64)\b|\bas +f(32|64)\b|std::f(32|64)|\blibm\b' >/dev/null; then
+			echo "  float type/cast/lib in ${file#"$REPO_ROOT"/}:" >&2
+			echo "$stripped" | grep -nE '\b(f32|f64)\b|\bas +f(32|64)\b|std::f(32|64)|\blibm\b' >&2 || true
+			violations=1
+		fi
+		if echo "$stripped" | grep -nE '[^.0-9][0-9]+\.[0-9]+' >/dev/null; then
+			echo "  decimal literal in ${file#"$REPO_ROOT"/}:" >&2
+			echo "$stripped" | grep -nE '[^.0-9][0-9]+\.[0-9]+' >&2 || true
+			violations=1
+		fi
+	done < <(find "$src_dir" -name '*.rs' -print0)
 
-if [ "$violations" -ne 0 ]; then
-	fail "intwav-core source contains floating-point constructs"
-fi
-echo "    ok: no float types, casts, or decimal literals in core source"
+	if [ "$violations" -ne 0 ]; then
+		fail "$label source contains floating-point constructs"
+	fi
+	echo "    ok: no float types, casts, or decimal literals in $label source"
+}
+
+echo "==> [1/2] Source scan of intwav-core and intwav-engine"
+scan_source "$CORE_SRC" "intwav-core"
+scan_source "$ENGINE_SRC" "intwav-engine"
 
 echo "==> [2/2] Disassembly scan of intwav-core"
 echo "    building release object..."

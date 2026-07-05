@@ -21,12 +21,12 @@ mod dbfs;
 mod dither;
 mod process;
 
-pub use analysis::{analyze, Analysis, ChannelStats, SilentRegion};
+pub use analysis::{analyze, Analysis, ChannelStats, SilenceConfig, SilentRegion};
 pub use dbfs::{dbfs_centibels, NEG_INF_CB};
 pub use dither::{requantize_to_16, Rng};
 pub use process::{
     apply_dc_correction, apply_fade_in, apply_fade_out, apply_gain_q31, gain_q31_for_db,
-    gain_would_clip, GAIN_UNITY_Q31,
+    gain_would_clip, magnitude_for_dbfs, GAIN_UNITY_Q31,
 };
 
 /// Errors from core processing. No panics on malformed input — every fallible

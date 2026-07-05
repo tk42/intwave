@@ -48,10 +48,13 @@ Tous les calculs sur les échantillons se trouvent dans `intwav-core`, qui est `
 
 ```
 crates/
-  intwav-core   DSP uniquement entier : analyse, dBFS, découpage, gain/fondu/DC, dither TPDF (scanné sans float)
-  intwav-codec  E/S entières WAV (hound) + FLAC (décodage claxon / encodage flac-CLI) + métadonnées
-  intwav-cli    le binaire `intwav` : analyse des commandes, E/S de fichiers, rapports JSON, sommes de contrôle
+  intwav-core    DSP uniquement entier : analyse, détection de silence fenestrée, dBFS, découpage, gain/fondu/DC, dither TPDF (scanné sans float)
+  intwav-codec   E/S entières WAV (hound) + FLAC (décodage claxon / encodage flac-CLI), métadonnées, sonde d'en-tête
+  intwav-engine  moteur partagé CLI/GUI : opérations, rapport JSON figé, erreurs codées, écritures atomiques vérifiées, pyramide de forme d'onde (source sans virgule flottante)
+  intwav-cli     le binaire `intwav` : interface légère au-dessus du moteur
 ```
+
+La crate `intwav-engine` constitue la base d'une future interface graphique (GUI avec Tauri + React) : chaque opération est synchrone et pilotée par l'appelant (progression + annulation), chaque écriture est vérifiée (`pcm_verified`), et la CLI ainsi que l'interface graphique le partagent à l'identique. L'interface graphique elle-même, une couche `intwav-playback` et un décodeur de streaming avec recherche (seekable) sont prévus pour des phases ultérieures.
 
 ## Compilation et tests
 

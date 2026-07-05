@@ -1,22 +1,19 @@
 //! `intwav` — integer PCM protection tool (CLI).
 //!
 //! Commands: info, check, peak, clips, trim, split, gain, fade-in, fade-out,
-//! dc-correct, export16, verify. File I/O and report emission live here; all
-//! sample math is delegated to `intwav-core` (float-free) and decoding/encoding
-//! to `intwav-codec`.
+//! dc-correct, export16, verify. This binary is a thin front-end: it parses
+//! arguments and formats output; all decoding, processing, verification, and
+//! report building happen in `intwav-engine`.
 
 mod commands;
-mod format;
-mod hash;
 mod params;
-mod report;
 mod timecode;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use intwav_codec::OutputFormat;
+use intwav_engine::OutputFormat;
 
 use commands::SplitMode;
 
@@ -80,6 +77,9 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Overwrite the output file if it already exists.
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Split into tracks by CUE list, silence, or A/B side.
     Split {
@@ -103,6 +103,9 @@ enum Command {
         artist: Option<String>,
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Overwrite existing track files if present.
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Apply a fixed-point gain in integer dB (-96..=24).
     Gain {
@@ -117,6 +120,8 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Linear fade-in over a duration (e.g. 5s, 250ms).
     FadeIn {
@@ -128,6 +133,8 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Linear fade-out over a duration (e.g. 5s, 250ms).
     FadeOut {
@@ -139,6 +146,8 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Remove per-channel DC offset.
     DcCorrect {
@@ -148,6 +157,8 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Derivative 16-bit output with TPDF dither (not a preservation master).
     Export16 {
@@ -163,6 +174,8 @@ enum Command {
         output_format: Option<CliOutputFormat>,
         #[arg(long)]
         report: Option<PathBuf>,
+        #[arg(long, short = 'f')]
+        overwrite: bool,
     },
     /// Checksum a file's PCM, or verify two files carry identical PCM.
     Verify {
@@ -188,6 +201,7 @@ fn run() -> anyhow::Result<()> {
             to,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_trim(
             &input,
             &output,
@@ -195,6 +209,7 @@ fn run() -> anyhow::Result<()> {
             &to,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::Split {
             input,
@@ -205,6 +220,7 @@ fn run() -> anyhow::Result<()> {
             album,
             artist,
             report,
+            overwrite,
         } => {
             let mode = match (cue, by) {
                 (Some(path), _) => SplitMode::Cue(path),
@@ -222,6 +238,7 @@ fn run() -> anyhow::Result<()> {
                 album.as_deref(),
                 artist.as_deref(),
                 report.as_deref(),
+                overwrite,
             )
         }
         Command::Gain {
@@ -231,6 +248,7 @@ fn run() -> anyhow::Result<()> {
             allow_clipping,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_gain(
             &input,
             &output,
@@ -238,6 +256,7 @@ fn run() -> anyhow::Result<()> {
             allow_clipping,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::FadeIn {
             input,
@@ -245,12 +264,14 @@ fn run() -> anyhow::Result<()> {
             duration,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_fade_in(
             &input,
             &output,
             &duration,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::FadeOut {
             input,
@@ -258,23 +279,27 @@ fn run() -> anyhow::Result<()> {
             duration,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_fade_out(
             &input,
             &output,
             &duration,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::DcCorrect {
             input,
             output,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_dc_correct(
             &input,
             &output,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::Export16 {
             input,
@@ -283,6 +308,7 @@ fn run() -> anyhow::Result<()> {
             seed,
             output_format,
             report,
+            overwrite,
         } => commands::cmd_export16(
             &input,
             &output,
@@ -290,6 +316,7 @@ fn run() -> anyhow::Result<()> {
             seed,
             output_format.map(Into::into),
             report.as_deref(),
+            overwrite,
         ),
         Command::Verify {
             input,

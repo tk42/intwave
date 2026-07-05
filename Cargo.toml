@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/intwav-core",
     "crates/intwav-codec",
+    "crates/intwav-engine",
     "crates/intwav-cli",
 ]
 
@@ -16,6 +17,7 @@ rust-version = "1.94"
 [workspace.dependencies]
 intwav-core = { path = "crates/intwav-core", version = "0.1.0" }
 intwav-codec = { path = "crates/intwav-codec", version = "0.1.0" }
+intwav-engine = { path = "crates/intwav-engine", version = "0.1.0" }
 claxon = "0.4"
 hound = "3.5"
 clap = { version = "4", features = ["derive"] }
