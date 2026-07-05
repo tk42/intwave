@@ -18,9 +18,16 @@ extern crate alloc;
 
 mod analysis;
 mod dbfs;
+mod dither;
+mod process;
 
 pub use analysis::{analyze, Analysis, ChannelStats, SilentRegion};
 pub use dbfs::{dbfs_centibels, NEG_INF_CB};
+pub use dither::{requantize_to_16, Rng};
+pub use process::{
+    apply_dc_correction, apply_fade_in, apply_fade_out, apply_gain_q31, gain_q31_for_db,
+    gain_would_clip, GAIN_UNITY_Q31,
+};
 
 /// Errors from core processing. No panics on malformed input — every fallible
 /// entry point returns one of these.
@@ -36,6 +43,10 @@ pub enum CoreError {
         to_frame: u64,
         frames: u64,
     },
+    /// A bit depth outside the supported set (16/24/32).
+    UnsupportedBitDepth(u16),
+    /// A per-channel parameter slice did not match the channel count.
+    ChannelMismatch { expected: usize, got: usize },
 }
 
 impl core::error::Error for CoreError {}
@@ -56,6 +67,12 @@ impl core::fmt::Display for CoreError {
                 f,
                 "trim range [{from_frame}, {to_frame}) is invalid for {frames} frames"
             ),
+            CoreError::UnsupportedBitDepth(bits) => {
+                write!(f, "unsupported bit depth {bits} (expected 16, 24, or 32)")
+            }
+            CoreError::ChannelMismatch { expected, got } => {
+                write!(f, "expected {expected} per-channel values but got {got}")
+            }
         }
     }
 }

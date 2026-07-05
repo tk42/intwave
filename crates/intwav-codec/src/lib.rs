@@ -17,8 +17,14 @@ mod wav;
 
 use std::path::Path;
 
-pub use flac::{encode_flac, read_flac};
+pub use flac::{encode_flac, read_flac, read_flac_tags};
 pub use wav::{read_wav, write_wav};
+
+/// Ordered Vorbis-comment metadata for FLAC output. Keys are conventionally
+/// uppercase (`TITLE`, `ARTIST`, `ALBUM`, `TRACKNUMBER`, `DATE`, `GENRE`,
+/// `COMMENT`, and archival tags like `SOURCE_MEDIA`). Duplicate keys are
+/// permitted by Vorbis and preserved in order.
+pub type Metadata = Vec<(String, String)>;
 
 /// Interleaved integer PCM plus its stream parameters. This is the single
 /// representation shared across the tool; `samples` are handed to `intwav-core`

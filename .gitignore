@@ -1,1 +1,5 @@
 /target
+
+# Large local test audio (e.g. sample/*.wav). Not committed — override if you
+# want a small fixture tracked in-repo.
+/sample/

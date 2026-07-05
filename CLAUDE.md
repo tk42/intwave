@@ -31,12 +31,17 @@ scanned. FLAC encoding is deliberately delegated to the external `flac` binary
 
 ## Layout
 
-- `crates/intwav-core` — sample math: `analyze`, `dbfs_centibels`, `frame_slice`.
-- `crates/intwav-codec` — `PcmBuffer`, WAV/FLAC read (`read`), WAV write, FLAC encode.
-  Decode never routes samples through float; unsupported/float input is an
-  explicit error, never a silent conversion.
-- `crates/intwav-cli` — the `intwav` binary; commands in `commands.rs`,
-  timestamps in `timecode.rs`, JSON reports in `report.rs`.
+- `crates/intwav-core` — all sample math: `analyze`, `dbfs_centibels`,
+  `frame_slice`, gain (`apply_gain_q31`, `gain_q31_for_db`), fades
+  (`apply_fade_in/out`), `apply_dc_correction`, and `requantize_to_16` + `Rng`
+  (`dither.rs`). Gain uses a precomputed Q31 table; no `pow`/float anywhere.
+- `crates/intwav-codec` — `PcmBuffer`, `Metadata`, WAV/FLAC read (`read`), WAV
+  write, FLAC encode (with Vorbis tags). Decode never routes samples through
+  float; unsupported/float input is an explicit error, never a silent conversion.
+- `crates/intwav-cli` — the `intwav` binary; one submodule per command group
+  under `commands/` (inspect, trim, split, edit, export, verify), parameter
+  parsing in `params.rs`/`timecode.rs`, unified `OpReport` in `report.rs`,
+  SHA-256 helpers in `hash.rs`.
 
 ## Conventions
 

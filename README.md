@@ -8,7 +8,7 @@
 
 intwav inspects, trims, and losslessly archives integer PCM **without** floating-point conversion, requantization, or resampling. It is not a DAW and does not "improve" audio — it preserves the PCM exactly as captured and stores it as lossless FLAC, with an explainable, logged processing path.
 
-## Status: v0.1
+## Status: v0.4
 
 Implemented commands:
 
@@ -19,9 +19,18 @@ Implemented commands:
 | `intwav peak <in>`   | Per-channel peak level (dBFS + raw) |
 | `intwav clips <in>`  | Clipped-sample counts |
 | `intwav trim <in> [out] --from <ts> --to <ts>` | Extract a range, sample values unchanged |
+| `intwav split <in> --out <dir> (--cue <f> \| --by silence\|ab)` | Split into tracks (CUE list, silence, or A/B side) with metadata |
+| `intwav gain <in> <out> --db <n>` | Fixed-point gain, integer dB (-96..=24); `+` gain needs `--allow-clipping` |
+| `intwav fade-in <in> <out> --duration <d>` | Linear fixed-point fade-in |
+| `intwav fade-out <in> <out> --duration <d>` | Linear fixed-point fade-out |
+| `intwav dc-correct <in> <out>` | Remove per-channel DC offset |
+| `intwav export16 <in> <out> [--dither tpdf]` | 16-bit derivative output with TPDF dither (not a master) |
+| `intwav verify <a> [b]` | Checksum PCM, or prove two files carry identical PCM |
 
-Timestamps are `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm`, or plain seconds.
-`trim` accepts `--output-format flac|wav` (default: infer from the output extension, else FLAC) and `--report <path>` for a JSON processing report (§13).
+Timestamps are `HH:MM:SS.mmm`, `MM:SS.mmm`, `SS.mmm`, or plain seconds; durations also accept `5s` / `250ms`.
+All processing commands accept `--output-format flac|wav` (default: infer from the output extension, else FLAC) and `--report <path>` for a JSON processing report (§13/§22) carrying PCM SHA-256 checksums and a processing-log hash.
+
+Gain, fades, DC correction, and 16-bit dithering are all **fixed-point integer** operations. Gain coefficients come from a precomputed Q31 table (no `pow`); TPDF dither uses an integer PRNG with a reproducible `--seed`.
 
 ### Formats
 
@@ -39,9 +48,9 @@ All sample math lives in `intwav-core`, which is `no_std` + `alloc`, has no depe
 
 ```
 crates/
-  intwav-core   integer-only processing: analysis, dBFS, frame slicing (float-scanned)
-  intwav-codec  WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O
-  intwav-cli    the `intwav` binary: command parsing, file I/O, JSON reports
+  intwav-core   integer-only DSP: analysis, dBFS, slicing, gain/fade/DC, TPDF dither (float-scanned)
+  intwav-codec  WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O + metadata
+  intwav-cli    the `intwav` binary: command parsing, file I/O, JSON reports, checksums
 ```
 
 ## Build & test

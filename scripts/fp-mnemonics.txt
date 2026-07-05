@@ -197,7 +197,12 @@ fcmpe
 fccmp
 fccmpe
 fcsel
-fmov
+# NOTE: `fmov` is intentionally NOT listed. It is a data-move instruction
+# (GP<->FP register or immediate move), not floating-point arithmetic. The
+# compiler may emit it for memcpy/memset-style moves that reuse the SIMD
+# register file even in integer-only code, which §14.3 explicitly permits.
+# Real float usage is still caught by the arithmetic/convert/compare ops above
+# and by the source scan (no f32/f64, no decimal literals).
 frinta
 frinti
 frintm

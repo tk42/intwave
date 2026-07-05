@@ -166,3 +166,206 @@ fn from_after_to_is_rejected() {
     // The range is rejected before any output is written.
     assert!(!Path::new(&output).exists());
 }
+
+/// Build a mono WAV of a constant sample value.
+fn const_pcm(value: i32, frames: usize, bit_depth: u16, rate: u32) -> PcmBuffer {
+    PcmBuffer {
+        bit_depth,
+        sample_rate: rate,
+        channels: 1,
+        samples: vec![value; frames],
+    }
+}
+
+#[test]
+fn gain_minus_six_db_halves_samples() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let output = dir.path().join("out.wav");
+    write_wav(&const_pcm(1000, 100, 24, 48_000), &input).unwrap();
+
+    let out = run(&[
+        "gain",
+        input.to_str().unwrap(),
+        output.to_str().unwrap(),
+        "--db",
+        "-6",
+        "--output-format",
+        "wav",
+    ]);
+    assert!(out.status.success(), "{:?}", out);
+    let (back, _) = read(&output).unwrap();
+    // -6 dB coefficient is 0.50118 -> round(1000 * that) = 501.
+    assert!(back.samples.iter().all(|&s| s == 501));
+}
+
+#[test]
+fn positive_gain_refuses_clipping_without_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let output = dir.path().join("out.wav");
+    // Near full-scale so +12 dB will clip.
+    write_wav(&const_pcm((1 << 23) - 1, 50, 24, 48_000), &input).unwrap();
+
+    let refused = run(&[
+        "gain",
+        input.to_str().unwrap(),
+        output.to_str().unwrap(),
+        "--db",
+        "12",
+        "--output-format",
+        "wav",
+    ]);
+    assert!(!refused.status.success());
+    assert!(!Path::new(&output).exists());
+
+    let allowed = run(&[
+        "gain",
+        input.to_str().unwrap(),
+        output.to_str().unwrap(),
+        "--db",
+        "12",
+        "--allow-clipping",
+        "--output-format",
+        "wav",
+    ]);
+    assert!(allowed.status.success());
+    let (back, _) = read(&output).unwrap();
+    assert!(back.samples.iter().all(|&s| s == (1 << 23) - 1)); // saturated
+}
+
+#[test]
+fn fade_in_starts_silent() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let output = dir.path().join("out.wav");
+    write_wav(&const_pcm(1000, 48_000, 24, 48_000), &input).unwrap();
+
+    let out = run(&[
+        "fade-in",
+        input.to_str().unwrap(),
+        output.to_str().unwrap(),
+        "--duration",
+        "0.5s",
+        "--output-format",
+        "wav",
+    ]);
+    assert!(out.status.success(), "{:?}", out);
+    let (back, _) = read(&output).unwrap();
+    assert_eq!(back.samples[0], 0); // silent at the very start
+    assert_eq!(*back.samples.last().unwrap(), 1000); // unchanged past the fade
+}
+
+#[test]
+fn export16_is_deterministic_and_16bit() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let out1 = dir.path().join("a.wav");
+    let out2 = dir.path().join("b.wav");
+    // 24-bit ramp.
+    let pcm = PcmBuffer {
+        bit_depth: 24,
+        sample_rate: 48_000,
+        channels: 2,
+        samples: (0..2000i32).map(|i| (i * 517) % (1 << 23)).collect(),
+    };
+    write_wav(&pcm, &input).unwrap();
+
+    for out in [&out1, &out2] {
+        let r = run(&[
+            "export16",
+            input.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "--seed",
+            "99",
+            "--output-format",
+            "wav",
+        ]);
+        assert!(r.status.success(), "{:?}", r);
+    }
+    let (a, _) = read(&out1).unwrap();
+    let (b, _) = read(&out2).unwrap();
+    assert_eq!(a.bit_depth, 16);
+    assert_eq!(a.samples, b.samples, "same seed -> identical dither");
+}
+
+#[test]
+fn split_by_cue_tracks_concatenate_to_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let out_dir = dir.path().join("tracks");
+    let cue = dir.path().join("tracks.cue");
+
+    let rate = 48_000;
+    // 3 seconds of ramp.
+    let pcm = PcmBuffer {
+        bit_depth: 24,
+        sample_rate: rate,
+        channels: 2,
+        samples: (0..3 * rate as i32 * 2)
+            .map(|i| (i * 3) % (1 << 23))
+            .collect(),
+    };
+    write_wav(&pcm, &input).unwrap();
+    std::fs::write(
+        &cue,
+        "00:00:00.000 One\n00:00:01.000 Two\n00:00:02.000 Three\n",
+    )
+    .unwrap();
+
+    let out = run(&[
+        "split",
+        input.to_str().unwrap(),
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--cue",
+        cue.to_str().unwrap(),
+        "--output-format",
+        "wav",
+    ]);
+    assert!(out.status.success(), "{:?}", out);
+
+    // Concatenate the three tracks in order; must reproduce the input samples.
+    let mut joined = Vec::new();
+    for name in ["01 One.wav", "02 Two.wav", "03 Three.wav"] {
+        let (t, _) = read(&out_dir.join(name)).unwrap();
+        joined.extend_from_slice(&t.samples);
+    }
+    assert_eq!(joined, pcm.samples, "tracks must rejoin bit-exactly");
+}
+
+#[test]
+fn verify_detects_identical_and_different() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.wav");
+    let b = dir.path().join("b.wav");
+    let c = dir.path().join("c.wav");
+    write_wav(&const_pcm(123, 100, 24, 48_000), &a).unwrap();
+    write_wav(&const_pcm(123, 100, 24, 48_000), &b).unwrap();
+    write_wav(&const_pcm(124, 100, 24, 48_000), &c).unwrap();
+
+    let same = run(&["verify", a.to_str().unwrap(), b.to_str().unwrap()]);
+    assert!(same.status.success());
+    let diff = run(&["verify", a.to_str().unwrap(), c.to_str().unwrap()]);
+    assert!(!diff.status.success());
+}
+
+#[test]
+fn dc_correct_removes_offset() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("in.wav");
+    let output = dir.path().join("out.wav");
+    write_wav(&const_pcm(500, 1000, 24, 48_000), &input).unwrap();
+
+    let out = run(&[
+        "dc-correct",
+        input.to_str().unwrap(),
+        output.to_str().unwrap(),
+        "--output-format",
+        "wav",
+    ]);
+    assert!(out.status.success(), "{:?}", out);
+    let (back, _) = read(&output).unwrap();
+    // A constant 500 has mean 500; correction zeroes it.
+    assert!(back.samples.iter().all(|&s| s == 0));
+}
