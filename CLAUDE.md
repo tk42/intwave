@@ -54,7 +54,12 @@ engine takes a configurable `flac` path so the GUI can inject a bundled sidecar.
   here. `open_source` decodes a source **once** into a seekable scratch file
   (`ScratchReader`/`ScratchWriter`) while building the waveform pyramid
   (`WaveformBuilder`) and PCM hash in the same pass — the GUI's memory spine.
-  Ops take typed params (frames/dB), never strings.
+  Ops take typed params (frames/dB), never strings. The **non-destructive
+  project model** also lives here: `Document` (sources/regions/markers/`OpChain`/
+  provenance), the command-pattern `Editor` (volatile undo/redo + append-only
+  provenance), `.iwproj` save/open with relative-path source refs + hash verify,
+  and `render_region`/`render_document` (fixed canonical op-chain, engine-enforced
+  Master vs Derivative `ExportKind` invariant).
 - `crates/intwav-playback` — preview playback (**off** the save path, NOT
   float-scanned — this is the one place float is legitimate). `Feeder` turns a
   `FrameSource` (scratch or in-memory) into `f32` blocks, applying the same
@@ -65,6 +70,12 @@ engine takes a configurable `flac` path so the GUI can inject a bundled sidecar.
   One submodule per command group under `commands/`; argument/timecode/CUE
   parsing in `params.rs`/`timecode.rs`. Output-producing commands take
   `--overwrite`/`-f` (the engine refuses `OUTPUT_EXISTS` otherwise).
+- `app/` — the Tauri v2 + React/TypeScript desktop GUI. `src-tauri/` is a
+  Cargo crate **detached** from the core workspace (its own `[workspace]`) so
+  the heavy Tauri build never slows the core workspace or CI; it path-depends on
+  the engine and exposes it as Tauri commands (open/analyze/waveform/trim/gain/
+  export16/verify + progress events + cancel). Build it separately (`npm run
+  tauri dev` from `app`), not via the root `cargo` commands.
 
 ## Conventions
 

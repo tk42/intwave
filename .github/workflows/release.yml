@@ -1,0 +1,74 @@
+name: Release desktop app
+
+# Build and attach the intwav desktop bundles to a GitHub Release on tag push.
+# Signing/notarization secrets and a self-contained `flac` sidecar per platform
+# must be provided (see app/RELEASE.md).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ contains(matrix.args, 'x86_64-apple') && 'x86_64-apple-darwin' || contains(matrix.args, 'aarch64-apple') && 'aarch64-apple-darwin' || '' }}
+
+      - name: Linux deps (webkit, ALSA, flac)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev flac
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend deps
+        working-directory: app
+        run: npm ci
+
+      # Provide a SELF-CONTAINED flac at src-tauri/binaries/flac-<triple> here.
+      # (Static build or dylib-bundled — see app/RELEASE.md. The line below
+      # vendors the host flac and is a placeholder that warns if not static.)
+      - name: Vendor flac sidecar
+        working-directory: app
+        shell: bash
+        run: bash scripts/prepare-flac.sh
+
+      - name: Build + release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing/notarization (set these secrets to distribute):
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "intwav ${{ github.ref_name }}"
+          releaseDraft: true
+          args: ${{ matrix.args }}

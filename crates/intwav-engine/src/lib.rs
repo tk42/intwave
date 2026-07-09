@@ -13,19 +13,27 @@
 //! (CLI text, GUI drawing, playback) may use float — none of them are here.
 
 mod audio;
+mod command;
 mod config;
+mod document;
 mod error;
 mod hash;
 mod open;
 mod ops;
 mod progress;
+mod project;
+mod render;
 mod report;
 mod scratch;
 mod waveform;
 mod write;
 
 pub use audio::{analyze_file, default_silence, AudioReport, SilentRegion};
+pub use command::{Command, Editor};
 pub use config::EngineConfig;
+pub use document::{
+    Document, Marker, OpChain, ProvenanceEntry, Region, SourceRef, PROJECT_VERSION,
+};
 pub use error::{EngineError, EngineResult, ErrorCode};
 pub use hash::{pcm_sha256, pcm_slice_sha256, text_sha256, PcmHasher};
 pub use open::{open_source, OpenParams, OpenSource};
@@ -34,6 +42,10 @@ pub use ops::{
     FadeParams, GainParams, Segment, SplitParams, TrimParams,
 };
 pub use progress::{CancelToken, FnProgress, NoProgress, ProgressSink};
+pub use project::{
+    open_project, resolve_source, save_project, source_ref_from_file, verify_source,
+};
+pub use render::{render_document, render_region, validate_export, ExportKind};
 pub use report::{format_dbfs, peak_dbfs, PeakDbfs, ProcessReport, TOOL_NAME, TOOL_VERSION};
 pub use scratch::{ScratchReader, ScratchWriter};
 pub use waveform::{build_pyramid, WaveformBuilder, WaveformLevel, WaveformPyramid};

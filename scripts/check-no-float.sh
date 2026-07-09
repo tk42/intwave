@@ -35,12 +35,14 @@ scan_source() {
 	local violations=0
 	local file stripped
 	while IFS= read -r -d '' file; do
-		# Drop `#[cfg(test)] mod tests { ... }` (to EOF) and strip line comments
-		# so prose in doc comments (numbers like 6.02) is ignored.
+		# Drop `#[cfg(test)] mod tests { ... }` (to EOF), strip line comments,
+		# and blank out double-quoted string contents. Comments (doc prose like
+		# 6.02) and string literals (version "1.0", messages) are data, not code,
+		# so decimals inside them are not float literals.
 		stripped="$(awk '
 			/#\[cfg\(test\)\]/ { intest=1 }
 			intest==1 { next }
-			{ sub(/\/\/.*/, ""); print }
+			{ sub(/\/\/.*/, ""); gsub(/"[^"]*"/, ""); print }
 		' "$file")"
 
 		if echo "$stripped" | grep -nE '\b(f32|f64)\b|\bas +f(32|64)\b|std::f(32|64)|\blibm\b' >/dev/null; then

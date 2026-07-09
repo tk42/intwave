@@ -50,12 +50,25 @@ Tous les calculs sur les échantillons se trouvent dans `intwav-core`, qui est `
 crates/
   intwav-core     DSP uniquement entier : analyse, détection de silence fenestrée, dBFS, découpage, gain/fondu/DC, dither TPDF (scanné sans float)
   intwav-codec    E/S entières WAV (hound) + FLAC (décodage claxon / encodage flac-CLI), métadonnées, sonde d'en-tête
-  intwav-engine   moteur partagé CLI/GUI : opérations, rapport JSON figé, erreurs codées, écritures atomiques vérifiées, fichier temporaire (scratch) décodé une seule fois + pyramide de forme d'onde (source sans virgule flottante)
+  intwav-engine   moteur partagé CLI/GUI : opérations, rapport JSON figé, erreurs codées, écritures atomiques vérifiées, fichier temporaire (scratch) décodé une seule fois + pyramide de forme d'onde, projet non destructif (.iwproj) + annuler/rendre (source sans virgule flottante)
   intwav-playback lecture d'aperçu (cpal) : aperçu de la chaîne d'opérations entière, virgule flottante uniquement à la frontière du périphérique — hors du chemin d'enregistrement, NON scanné pour les floats
   intwav-cli      le binaire `intwav` : interface légère au-dessus du moteur
 ```
 
-La crate `intwav-engine` constitue la base d'une future interface graphique (GUI avec Tauri + React) : chaque opération est synchrone et pilotée par l'appelant (progression + annulation), chaque écriture est vérifiée (`pcm_verified`), et la CLI ainsi que l'interface graphique le partagent à l'identique. `open_source` décode une seule fois une source volumineuse dans un fichier temporaire (scratch) avec recherche (seekable) tout en construisant la forme d'onde et le hachage PCM en une seule passe. `intwav-playback` lit l'aperçu à partir de ce fichier temporaire en exécutant la même chaîne d'opérations entière que lors de l'exportation, en utilisant les virgules flottantes uniquement lors de la conversion finale pour le périphérique audio (priorité à la fréquence native, rééchantillonnage flottant en secours). L'interface graphique elle-même (Tauri + React) constitue la phase restante.
+La crate `intwav-engine` constitue la base de l'interface graphique (GUI avec Tauri + React) : chaque opération est synchrone et pilotée par l'appelant (progression + annulation), chaque écriture est vérifiée (`pcm_verified`), et la CLI ainsi que l'interface graphique le partagent à l'identique. `open_source` décode une seule fois une source volumineuse dans un fichier temporaire (scratch) avec recherche (seekable) tout en construisant la forme d'onde et le hachage PCM en une seule passe. `intwav-playback` lit l'aperçu à partir de ce fichier temporaire en exécutant la même chaîne d'opérations entière que lors de l'exportation, en utilisant les virgules flottantes uniquement lors de la conversion finale pour le périphérique audio (priorité à la fréquence native, rééchantillonnage flottant en secours).
+
+## GUI (Tauri + React) — aperçu
+
+Une interface graphique de bureau se trouve dans `app/` : un backend Tauri v2 (`src-tauri/`, une crate **détachée** de l'espace de travail principal pour que sa lourde compilation ne ralentisse pas la CI) qui expose le moteur sous forme de commandes, et un frontend React + TypeScript (en japonais par défaut, bilingue). Elle ouvre les fichiers WAV/FLAC via `open_source` (fichier temporaire décodé une fois + forme d'onde), affiche la forme d'onde ainsi qu'un panneau d'état **Integer-Safe** (sécurisé pour les entiers) piloté par les données du rapport figé, et exécute les opérations de trim/gain/export16/verify avec progression en direct et annulation — le tout via le même moteur que celui utilisé par la CLI.
+
+```bash
+cd app
+npm install
+npm run tauri dev     # développement (nécessite une session de bureau)
+npm run tauri build   # compiler une application signée (macOS/Windows/Linux)
+```
+
+Le frontend peut être compilé en mode headless avec `npm run build` ; le backend se vérifie avec `cargo check` à l'intérieur de `app/src-tauri`.
 
 ## Compilation et tests
 

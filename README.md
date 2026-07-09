@@ -50,7 +50,7 @@ All sample math lives in `intwav-core`, which is `no_std` + `alloc`, has no depe
 crates/
   intwav-core    integer-only DSP: analysis, windowed silence, dBFS, slicing, gain/fade/DC, TPDF dither (float-scanned)
   intwav-codec   WAV (hound) + FLAC (claxon decode / flac-CLI encode) integer I/O, metadata, header probe
-  intwav-engine   shared CLI/GUI engine: ops, frozen JSON report, coded errors, verified atomic writes, decode-once scratch + waveform pyramid (float-free source)
+  intwav-engine   shared CLI/GUI engine: ops, frozen JSON report, coded errors, verified atomic writes, decode-once scratch + waveform pyramid, non-destructive project (.iwproj) + undo/render (float-free source)
   intwav-playback preview playback (cpal): integer op-chain preview, float only at the device boundary — off the save path, NOT float-scanned
   intwav-cli      the `intwav` binary: thin front-end over the engine
 ```
@@ -62,7 +62,31 @@ every write is verified (`pcm_verified`), and the CLI and GUI share it verbatim.
 building the waveform and PCM hash in a single pass. `intwav-playback` previews
 from that scratch, running the same integer op-chain the export would, with float
 only at the final device conversion (native-rate-first, float resample fallback).
-The GUI itself (Tauri + React) is the remaining phase.
+
+## GUI (Tauri + React) — preview
+
+A desktop GUI lives in `app/`: a Tauri v2 backend (`src-tauri/`, a crate
+**detached** from the core workspace so its heavy build never slows CI) that
+exposes the engine as commands, and a React + TypeScript frontend (Japanese-
+default, bilingual). It opens WAV/FLAC via `open_source` (decode-once scratch +
+waveform), shows the waveform and an **Integer-Safe** status panel driven by the
+frozen report facts, and runs trim/gain/export16/verify with live progress and
+cancel — all through the same engine the CLI uses.
+
+```bash
+cd app
+npm install
+bash scripts/prepare-flac.sh   # vendor the flac sidecar
+npm run tauri dev              # dev (needs a desktop session)
+npm run tauri build           # bundle .app/.dmg/.msi/.AppImage
+```
+
+`tauri build` bundles the engine + a `flac` sidecar into a native installer
+(e.g. `intwav_<ver>_<arch>.dmg`). For **distribution** — a self-contained `flac`
+per platform, code signing, and notarization — see
+[app/RELEASE.md](app/RELEASE.md); a tag-triggered multi-platform build
+lives in [.github/workflows/release.yml](.github/workflows/release.yml). The
+frontend also builds headlessly with `npm run build`.
 
 ## Build & test
 
