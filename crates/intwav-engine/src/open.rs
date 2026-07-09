@@ -89,9 +89,10 @@ pub fn open_source(
         writer.write_block(block).map_err(CodecError::Io)?;
         hasher.update(block);
         waveform.push_block(block);
-        if total_frames > 0 {
-            done_frames += (block.len() as u64) / ch;
-            progress.set_permille(((done_frames.min(total_frames)) * 1000 / total_frames) as u32);
+        done_frames += (block.len() as u64) / ch;
+        // Emit progress only when the total is known (checked_div → None at 0).
+        if let Some(permille) = (done_frames.min(total_frames) * 1000).checked_div(total_frames) {
+            progress.set_permille(permille as u32);
         }
         Ok(())
     })

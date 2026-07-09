@@ -18,11 +18,7 @@ pub struct WaveformLevel {
 
 impl WaveformLevel {
     pub fn buckets(&self) -> usize {
-        if self.channels == 0 {
-            0
-        } else {
-            self.min.len() / self.channels
-        }
+        self.min.len().checked_div(self.channels).unwrap_or(0)
     }
 }
 
