@@ -103,7 +103,75 @@ export const runExport16 = (
 export const runVerify = (a: string, b?: string) =>
   invoke<ProcessReport>("run_verify", { a, b: b ?? null });
 
+export const runDcCorrect = (
+  input: string,
+  output: string,
+  format: OutFormat,
+  overwrite: boolean,
+  jobId: string,
+) => invoke<ProcessReport>("run_dc_correct", { input, output, format, overwrite, jobId });
+
+export const runFade = (
+  input: string,
+  output: string,
+  kind: "in" | "out",
+  durationFrames: number,
+  format: OutFormat,
+  overwrite: boolean,
+  jobId: string,
+) =>
+  invoke<ProcessReport>("run_fade", {
+    input,
+    output,
+    kind,
+    durationFrames,
+    format,
+    overwrite,
+    jobId,
+  });
+
+export const runSplit = (
+  input: string,
+  outDir: string,
+  mode: "silence" | "ab",
+  album: string | null,
+  artist: string | null,
+  format: OutFormat,
+  overwrite: boolean,
+  jobId: string,
+) =>
+  invoke<ProcessReport>("run_split", {
+    input,
+    outDir,
+    mode,
+    album,
+    artist,
+    format,
+    overwrite,
+    jobId,
+  });
+
 export const cancelJob = (jobId: string) => invoke<void>("cancel_job", { jobId });
+
+// ---- playback ----
+
+export interface PlaybackStatus {
+  playing: boolean;
+  position: number;
+  error?: string;
+}
+
+export const playbackLoad = (
+  id: string,
+  gainDb: number | null,
+  fadeInFrames: number,
+  fadeOutFrames: number,
+) => invoke<void>("playback_load", { id, gainDb, fadeInFrames, fadeOutFrames });
+export const playbackPlay = () => invoke<void>("playback_play");
+export const playbackPause = () => invoke<void>("playback_pause");
+export const playbackStop = () => invoke<void>("playback_stop");
+export const playbackSeek = (frame: number) => invoke<void>("playback_seek", { frame });
+export const playbackStatus = () => invoke<PlaybackStatus>("playback_status");
 
 // ---- v2 non-destructive project (engine-owned document; snake_case = serde) ----
 

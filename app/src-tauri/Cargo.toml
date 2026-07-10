@@ -27,6 +27,7 @@ serde_json = "1"
 intwav-core = { path = "../../crates/intwav-core" }
 intwav-codec = { path = "../../crates/intwav-codec" }
 intwav-engine = { path = "../../crates/intwav-engine" }
+intwav-playback = { path = "../../crates/intwav-playback" }
 
 [features]
 # Enable custom-protocol for production builds (Tauri convention).

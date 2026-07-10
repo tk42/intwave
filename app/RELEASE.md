@@ -7,7 +7,22 @@ a distributable is `npm run tauri build`, which emits, per host OS:
 - **Windows**: `.msi` (WiX) and/or `.exe` (NSIS)
 - **Linux**: `.deb` and `.AppImage`
 
-under `src-tauri/target/release/bundle/`.
+under `src-tauri/target/release/bundle/` (e.g.
+`bundle/dmg/intwav_<ver>_aarch64.dmg`, `bundle/macos/intwav.app`).
+
+Note: `npm run build` (frontend only → `dist/`) and `cargo build` (Rust only) do
+**not** produce an installer — only `npm run tauri build` does.
+
+**Headless / CI:** the macOS `.dmg` step (`create-dmg`) styles the disk-image
+window via Finder/AppleScript, which needs a desktop session. On a headless box
+(SSH, CI) set `CI=true` to skip the styling and emit a plain `.dmg`:
+
+```bash
+CI=true npm run tauri build
+```
+
+On a normal macOS desktop, `npm run tauri build` produces the styled `.dmg`
+directly. (GitHub Actions sets `CI=true` automatically.)
 
 ## 1. The `flac` sidecar (required, or FLAC output breaks on users' machines)
 

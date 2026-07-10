@@ -15,13 +15,19 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+use intwav_core::gain_q31_for_db;
 use intwav_engine::{
-    analyze_file, dc_correct, export16 as engine_export16, gain as engine_gain, open_project,
-    open_source, render_document, save_project, source_ref_from_file, trim as engine_trim,
-    verify as engine_verify, CancelToken, Command, DcParams, Document, Editor, EngineConfig,
-    Export16Params, ExportKind, GainParams, Marker, OpChain, OpenParams, OutputFormat,
-    ProcessReport, ProgressSink, Region, ScratchReader, TrimParams, WaveformPyramid,
+    analyze_file, dc_correct, export16 as engine_export16, fade as engine_fade,
+    gain as engine_gain, open_project, open_source, render_document, save_project,
+    source_ref_from_file, split as engine_split, trim as engine_trim, verify as engine_verify,
+    CancelToken, Command, DcParams, Document, Editor, EngineConfig, Export16Params, ExportKind,
+    FadeKind, FadeParams, GainParams, Marker, OpChain, OpenParams, OutputFormat, ProcessReport,
+    ProgressSink, Region, ScratchReader, Segment, SplitParams, TrimParams, WaveformPyramid,
 };
+use intwav_playback::PreviewChain;
+
+mod playback;
+use playback::{spawn as spawn_playback, PlayCmd, PlaybackHandle};
 
 /// A decoded, scratch-backed source held open in the GUI.
 struct Session {
@@ -42,6 +48,8 @@ pub struct AppState {
     editor: Mutex<Editor>,
     /// Directory of the current `.iwproj`, for relative source resolution.
     project_dir: Mutex<Option<PathBuf>>,
+    /// Lazily-spawned audio playback thread handle.
+    playback: Mutex<Option<PlaybackHandle>>,
 }
 
 impl Default for AppState {
@@ -53,6 +61,7 @@ impl Default for AppState {
             counter: AtomicU64::new(0),
             editor: Mutex::new(Editor::new(Document::new())),
             project_dir: Mutex::new(None),
+            playback: Mutex::new(None),
         }
     }
 }
@@ -528,6 +537,237 @@ fn source_path(state: &State<'_, AppState>, id: &str) -> Option<PathBuf> {
         .map(|s| s.source_path.clone())
 }
 
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn run_fade(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: String,
+    output: String,
+    kind: String,
+    duration_frames: u64,
+    format: String,
+    overwrite: bool,
+    job_id: String,
+) -> Result<ProcessReport, String> {
+    let fade_kind = if kind.eq_ignore_ascii_case("out") {
+        FadeKind::Out
+    } else {
+        FadeKind::In
+    };
+    let cancel = register_job(&state, &job_id);
+    let progress = EventProgress {
+        app,
+        job_id: job_id.clone(),
+    };
+    let params = FadeParams {
+        kind: fade_kind,
+        frames: duration_frames,
+        format: parse_format(&format),
+        overwrite,
+    };
+    let r = engine_fade(
+        &PathBuf::from(input),
+        &PathBuf::from(output),
+        &params,
+        &state.config,
+        &progress,
+        &cancel,
+    )
+    .map_err(|e| e.to_string());
+    unregister_job(&state, &job_id);
+    r
+}
+
+// ------------------------------------------------------- playback
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaybackStatus {
+    playing: bool,
+    position: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Load the given session's scratch PCM into the audio thread with an optional
+/// preview op-chain (what you hear equals what export would produce).
+#[tauri::command]
+fn playback_load(
+    state: State<'_, AppState>,
+    id: String,
+    gain_db: Option<i32>,
+    fade_in_frames: u64,
+    fade_out_frames: u64,
+) -> Result<(), String> {
+    let scratch_path = state
+        .sessions
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|s| s.scratch_path.clone())
+        .ok_or_else(|| "unknown session".to_string())?;
+    let chain = PreviewChain {
+        gain_q31: gain_db.and_then(gain_q31_for_db),
+        fade_in_frames,
+        fade_out_frames,
+    };
+    let mut pb = state.playback.lock().unwrap();
+    if pb.is_none() {
+        *pb = Some(spawn_playback());
+    }
+    pb.as_ref().unwrap().send(PlayCmd::Load {
+        scratch_path,
+        chain,
+    });
+    Ok(())
+}
+
+fn send_play(state: &State<'_, AppState>, cmd: PlayCmd) {
+    if let Some(pb) = state.playback.lock().unwrap().as_ref() {
+        pb.send(cmd);
+    }
+}
+
+#[tauri::command]
+fn playback_play(state: State<'_, AppState>) {
+    send_play(&state, PlayCmd::Play);
+}
+
+#[tauri::command]
+fn playback_pause(state: State<'_, AppState>) {
+    send_play(&state, PlayCmd::Pause);
+}
+
+#[tauri::command]
+fn playback_stop(state: State<'_, AppState>) {
+    send_play(&state, PlayCmd::Stop);
+}
+
+#[tauri::command]
+fn playback_seek(state: State<'_, AppState>, frame: u64) {
+    send_play(&state, PlayCmd::Seek(frame));
+}
+
+#[tauri::command]
+fn playback_status(state: State<'_, AppState>) -> PlaybackStatus {
+    match state.playback.lock().unwrap().as_ref() {
+        Some(h) => PlaybackStatus {
+            playing: h.playing(),
+            position: h.position(),
+            error: h.take_error(),
+        },
+        None => PlaybackStatus {
+            playing: false,
+            position: 0,
+            error: None,
+        },
+    }
+}
+
+// ---------------------------------------------------------- split
+
+/// Silence-based track boundaries: cut at the midpoint of each silent region.
+fn split_segments_silence(input: &Path) -> Result<Vec<Segment>, String> {
+    let a = analyze_file(input, None).map_err(|e| e.to_string())?;
+    let frames = a.frames;
+    let mut cuts: Vec<u64> = a
+        .silent_regions
+        .iter()
+        .map(|r| (r.start_frame + r.end_frame) / 2)
+        .filter(|&c| c > 0 && c < frames)
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+
+    let mut segs = Vec::new();
+    let mut start = 0u64;
+    for (i, &cut) in cuts.iter().enumerate() {
+        segs.push(Segment {
+            from_frame: start,
+            to_frame: cut,
+            title: format!("Track {:02}", i + 1),
+        });
+        start = cut;
+    }
+    segs.push(Segment {
+        from_frame: start,
+        to_frame: frames,
+        title: format!("Track {:02}", cuts.len() + 1),
+    });
+    Ok(segs)
+}
+
+/// A/B side split at the longest silence (else the midpoint).
+fn split_segments_ab(input: &Path) -> Result<Vec<Segment>, String> {
+    let a = analyze_file(input, None).map_err(|e| e.to_string())?;
+    let frames = a.frames;
+    let cut = a
+        .silent_regions
+        .iter()
+        .max_by_key(|r| r.end_frame - r.start_frame)
+        .map(|r| (r.start_frame + r.end_frame) / 2)
+        .filter(|&c| c > 0 && c < frames)
+        .unwrap_or(frames / 2);
+    Ok(vec![
+        Segment {
+            from_frame: 0,
+            to_frame: cut,
+            title: "A".to_string(),
+        },
+        Segment {
+            from_frame: cut,
+            to_frame: frames,
+            title: "B".to_string(),
+        },
+    ])
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn run_split(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: String,
+    out_dir: String,
+    mode: String,
+    album: Option<String>,
+    artist: Option<String>,
+    format: String,
+    overwrite: bool,
+    job_id: String,
+) -> Result<ProcessReport, String> {
+    let in_path = PathBuf::from(&input);
+    let segments = if mode.eq_ignore_ascii_case("ab") {
+        split_segments_ab(&in_path)?
+    } else {
+        split_segments_silence(&in_path)?
+    };
+    let params = SplitParams {
+        segments,
+        album,
+        artist,
+        format: parse_format(&format),
+        overwrite,
+    };
+    let cancel = register_job(&state, &job_id);
+    let progress = EventProgress {
+        app,
+        job_id: job_id.clone(),
+    };
+    let r = engine_split(
+        &in_path,
+        &PathBuf::from(out_dir),
+        &params,
+        &state.config,
+        &progress,
+        &cancel,
+    )
+    .map_err(|e| e.to_string());
+    unregister_job(&state, &job_id);
+    r
+}
+
 // ------------------------------------------------- v2 project commands
 
 #[tauri::command]
@@ -708,8 +948,16 @@ pub fn run() {
             run_gain,
             run_export16,
             run_dc_correct,
+            run_fade,
+            run_split,
             run_verify,
             cancel_job,
+            playback_load,
+            playback_play,
+            playback_pause,
+            playback_stop,
+            playback_seek,
+            playback_status,
             project_new,
             project_open,
             project_save,
